@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import libsql_client
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 st.set_page_config(page_title="LINE 客服訊息紀錄", layout="wide")
 
@@ -39,13 +40,13 @@ if df.empty:
     st.info("目前還沒有任何訊息紀錄，等待客人傳訊息進來。")
     st.stop()
 
-df["received_at"] = pd.to_datetime(df["received_at"])
+df["received_at"] = pd.to_datetime(df["received_at"], utc=True).dt.tz_convert("Asia/Taipei")
 
 # ---------- 統計區 ----------
 st.subheader("📊 統計總覽")
 col1, col2, col3, col4 = st.columns(4)
 
-today = datetime.utcnow().date()
+today = datetime.now(ZoneInfo("Asia/Taipei")).date()
 today_count = df[df["received_at"].dt.date == today].shape[0]
 unhandled_count = df[df["status"] == "未處理"].shape[0]
 unique_customers = df["line_user_id"].nunique()
@@ -88,10 +89,10 @@ if customer_filter != "全部":
 if days_filter == "今天":
     filtered_df = filtered_df[filtered_df["received_at"].dt.date == today]
 elif days_filter == "近7天":
-    cutoff = datetime.utcnow() - timedelta(days=7)
+    cutoff = datetime.now(ZoneInfo("Asia/Taipei")) - timedelta(days=7)
     filtered_df = filtered_df[filtered_df["received_at"] >= cutoff]
 elif days_filter == "近30天":
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(ZoneInfo("Asia/Taipei")) - timedelta(days=30)
     filtered_df = filtered_df[filtered_df["received_at"] >= cutoff]
 
 st.caption(f"共 {len(filtered_df)} 筆")
