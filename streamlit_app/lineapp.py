@@ -94,12 +94,16 @@ def ensure_schema():
     sql("""CREATE TABLE IF NOT EXISTS replies(id INTEGER PRIMARY KEY AUTOINCREMENT,line_user_id TEXT NOT NULL,reply_text TEXT,replied_by TEXT,replied_at TEXT DEFAULT (datetime('now')))""")
     sql("""CREATE TABLE IF NOT EXISTS service_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,line_user_id TEXT NOT NULL,customer_name TEXT,phone TEXT,area TEXT,service_type TEXT,preferred_date TEXT,preferred_time TEXT,address TEXT,note TEXT,status TEXT DEFAULT '新需求',created_by TEXT,created_at TEXT DEFAULT (datetime('now')))""")
     sql("""CREATE TABLE IF NOT EXISTS quick_replies(id INTEGER PRIMARY KEY AUTOINCREMENT,category TEXT,title TEXT,body TEXT,updated_at TEXT DEFAULT (datetime('now')))""")
+    sql("""CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE,color TEXT DEFAULT '#06C755',description TEXT,created_at TEXT DEFAULT (datetime('now')))""")
+    sql("""CREATE TABLE IF NOT EXISTS keyword_replies(id INTEGER PRIMARY KEY AUTOINCREMENT,keyword TEXT NOT NULL,reply_text TEXT NOT NULL,match_type TEXT DEFAULT 'contains',enabled INTEGER DEFAULT 1,updated_at TEXT DEFAULT (datetime('now')))""")
+    sql("""CREATE TABLE IF NOT EXISTS broadcast_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,message TEXT,success_count INTEGER DEFAULT 0,fail_count INTEGER DEFAULT 0,total_count INTEGER DEFAULT 0,created_at TEXT DEFAULT (datetime('now')))""")
     add_col("line_messages", "handled_by", "TEXT")
     add_col("line_messages", "status", "TEXT DEFAULT '未處理'")
     add_col("line_messages", "read_status", "TEXT DEFAULT '未讀'")
     add_col("line_messages", "note", "TEXT")
     for name, definition in {"phone": "TEXT", "area": "TEXT", "address": "TEXT", "vip": "INTEGER DEFAULT 0", "owner": "TEXT"}.items():
         add_col("customers", name, definition)
+    add_col("customers", "tags", "TEXT")
     if read_table("quick_replies").empty:
         seeds = [
             ("報價", "居家清潔報價", "您好，居家清潔會依坪數、清潔範圍與髒污程度報價。您可以先提供地區、坪數、想清潔的項目，我們協助您估價。"),
@@ -147,12 +151,52 @@ def save_quick(category, title, body):
     sql("INSERT INTO quick_replies(category,title,body,updated_at) VALUES(?,?,?,datetime('now'))", [category, title, body])
 
 
+def save_tag(name, color, description):
+    sql("""INSERT INTO tags(name,color,description,created_at) VALUES(?,?,?,datetime('now')) ON CONFLICT(name) DO UPDATE SET color=excluded.color,description=excluded.description""", [name, color, description])
+
+
+def delete_tag(tag_id):
+    sql("DELETE FROM tags WHERE id=?", [tag_id])
+
+
+def save_keyword_reply(keyword, reply_text, match_type, enabled):
+    sql("INSERT INTO keyword_replies(keyword,reply_text,match_type,enabled,updated_at) VALUES(?,?,?,?,datetime('now'))", [keyword, reply_text, match_type, int(enabled)])
+
+
+def delete_keyword_reply(reply_id):
+    sql("DELETE FROM keyword_replies WHERE id=?", [reply_id])
+
+
+def push_line_message(uid, text):
+    import requests
+    token = st.secrets.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+    if not token:
+        return False, "missing_token"
+    try:
+        res = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"to": uid, "messages": [{"type": "text", "text": text}]},
+            timeout=10,
+        )
+        return res.ok, str(res.status_code)
+    except Exception as exc:
+        return False, str(exc)
+
+
+def log_broadcast(message, success, fail, total):
+    sql("INSERT INTO broadcast_logs(message,success_count,fail_count,total_count,created_at) VALUES(?,?,?,?,datetime('now'))", [message, success, fail, total])
+
+
 ensure_schema()
 messages = to_taipei(read_table("line_messages", "received_at DESC"), "received_at")
 replies = to_taipei(read_table("replies", "replied_at DESC"), "replied_at")
 customers = read_table("customers")
 requests = to_taipei(read_table("service_requests", "created_at DESC"), "created_at")
 quick = read_table("quick_replies", "category,title")
+tags = read_table("tags", "name")
+keyword_replies = read_table("keyword_replies", "id DESC")
+broadcast_logs = to_taipei(read_table("broadcast_logs", "created_at DESC"), "created_at")
 
 if messages.empty:
     st.markdown('<div class="hero"><h1>🍋 Lemon LINE 客服中心</h1><p>目前還沒有任何 LINE 訊息。</p></div>', unsafe_allow_html=True)
@@ -223,223 +267,237 @@ def keyword_mask(series, keywords):
     return mask
 
 
-st.markdown('<div class="hero"><h1>🍋 Lemon LINE 客服中心</h1><p>LINE 客服接單、CRM、預約需求、快捷回覆整合後台</p></div>', unsafe_allow_html=True)
+st.markdown("""
+<style>
+[data-testid="stSidebar"]{background:#20252d}
+[data-testid="stSidebar"] *{color:#eef2f7}
+[data-testid="stSidebar"] [role="radiogroup"] label{border-radius:8px;padding:8px 10px;margin:2px 0}
+[data-testid="stSidebar"] [role="radiogroup"] label:hover{background:#303844}
+.block-container{padding-top:1.4rem;max-width:1540px}
+.admin-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.admin-title{font-size:30px;font-weight:850;color:#111827;margin:0}
+.admin-sub{color:#667085;margin-top:4px}
+.panel{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px;box-shadow:0 8px 24px rgba(15,23,42,.06);margin-bottom:16px}
+.stat-card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px;min-height:116px;box-shadow:0 8px 24px rgba(15,23,42,.05)}
+.stat-card .num{font-size:32px;font-weight:850;color:#111827;line-height:1.1}
+.stat-card .label{color:#667085;font-weight:700;margin-bottom:10px}
+.status-pill{display:inline-block;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:800}
+</style>
+""", unsafe_allow_html=True)
 
-tab_overview, tab_inbox, tab_search, tab_customers, tab_requests, tab_quick, tab_perf = st.tabs(["今日總覽", "訊息中心", "訊息搜尋", "客戶中心", "預約中心", "快捷回覆", "客服績效"])
 
-with tab_overview:
-    today_msgs = messages[messages.received_at.dt.date == today]
-    tracked_keywords = split_keywords(MESSAGE_SEARCH_KEYWORDS)
-    cancel_count = messages[
-        (messages.received_at.dt.date >= datetime(2026, 6, 22).date())
-        & keyword_mask(messages.message_text, tracked_keywords)
-    ].shape[0]
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: metric("今日新訊息", len(today_msgs), "含文字 / 圖片 / 其他")
-    with c2: metric("未讀訊息", int((messages.read_status == "未讀").sum()), "需要查看")
-    with c3: metric("未處理", int((messages.status == "未處理").sum()), "尚未結案")
-    with c4: metric("取消 / 異動", cancel_count, "6/22 起")
-    with c5: metric("預約需求", len(requests), "客服建立")
-    st.write("")
+def page_header(title, sub="LINE Bot 訊息管理系統"):
+    st.markdown(
+        f'<div class="admin-head"><div><h1 class="admin-title">{esc(title)}</h1><div class="admin-sub">{esc(sub)}</div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def stat_card(label, value, sub=""):
+    st.markdown(
+        f'<div class="stat-card"><div class="label">{esc(label)}</div><div class="num">{esc(value)}</div><div class="muted">{esc(sub)}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def build_message_rows(df):
+    rows = []
+    for _, r in df.iterrows():
+        rows.append({
+            "時間": r.received_at,
+            "用戶": customer_name(r.line_user_id),
+            "LINE 暱稱": r.display_name,
+            "標籤": customer_area(r.line_user_id),
+            "內容": r.message_text,
+            "狀態": r.status,
+            "讀取": r.read_status,
+            "客服": r.handled_by,
+            "LINE ID": r.line_user_id,
+            "訊息 ID": r.id,
+        })
+    return pd.DataFrame(rows)
+
+
+with st.sidebar:
+    st.markdown("## LINE Bot 管理")
+    st.caption("Lemon 客服後台")
+    page = st.radio(
+        "主選單",
+        ["儀表板", "訊息管理", "用戶管理", "標籤管理", "關鍵字回覆", "群發訊息", "預約需求", "快捷回覆", "客服績效", "系統設定"],
+        label_visibility="collapsed",
+    )
+
+today_msgs = messages[messages.received_at.dt.date == today]
+tracked_keywords = split_keywords(MESSAGE_SEARCH_KEYWORDS)
+change_msgs = messages[
+    (messages.received_at.dt.date >= datetime(2026, 6, 22).date())
+    & keyword_mask(messages.message_text, tracked_keywords)
+]
+
+if page == "儀表板":
+    page_header("儀表板")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: stat_card("總訊息", len(messages), "所有 LINE 訊息")
+    with c2: stat_card("活躍用戶", messages.line_user_id.nunique(), "去重後")
+    with c3: stat_card("今日訊息", len(today_msgs), str(today))
+    with c4: stat_card("回覆率", f"{round((messages.status.isin(['已完成', '待客戶回覆']).sum() / len(messages)) * 100)}%", "依處理狀態估算")
     left, right = st.columns([1.2, 1])
     with left:
-        st.markdown('<div class="card"><div class="title">每日訊息量</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel"><h3>訊息趨勢</h3>', unsafe_allow_html=True)
         daily = messages.groupby(messages.received_at.dt.date).size().reset_index(name="訊息數").rename(columns={"received_at": "日期"})
         st.bar_chart(daily.set_index("日期"), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
     with right:
-        st.markdown('<div class="card"><div class="title">最近訊息</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel"><h3>最近訊息</h3>', unsafe_allow_html=True)
         for _, r in messages.head(8).iterrows():
-            st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{area_tag(customer_area(r.line_user_id))}{status_tag(r.status)}{read_tag(r.read_status)}<br><span class="muted">{r.received_at.strftime("%Y/%m/%d %H:%M")}</span><br>{esc(r.message_text)}</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{status_tag(r.status)}{read_tag(r.read_status)}<br><span class="muted">{r.received_at.strftime("%Y/%m/%d %H:%M")}</span><br>{esc(r.message_text)}</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-with tab_inbox:
-    filters = st.columns([1, 1, 1, 2])
-    with filters[0]:
-        status_filter = st.selectbox("處理狀態", ["全部"] + STATUS, key="inbox_status")
-    with filters[1]:
-        read_filter = st.selectbox("讀取狀態", ["全部"] + READ_STATUS, key="inbox_read")
-    with filters[2]:
-        area_filter = st.selectbox("地區", ["全部"] + AREAS, key="inbox_area")
-    with filters[3]:
-        keyword = st.text_input("搜尋", placeholder="姓名、LINE 暱稱、訊息內容", key="inbox_keyword")
-
-    target = summary.copy()
-    if status_filter != "全部":
-        target = target[target.line_user_id.isin(messages[messages.status == status_filter].line_user_id.unique())]
-    if read_filter != "全部":
-        target = target[target.line_user_id.isin(messages[messages.read_status == read_filter].line_user_id.unique())]
-    if area_filter != "全部":
-        target = target[target.line_user_id.apply(customer_area) == area_filter]
-    if keyword:
-        matched_msg = messages[messages.message_text.astype(str).str.contains(keyword, case=False, na=False)].line_user_id.unique()
-        target = target[target.line_user_id.apply(lambda uid: keyword.lower() in customer_name(uid).lower() or uid in matched_msg)]
-
-    col_list, col_chat, col_profile = st.columns([0.9, 1.45, 0.9])
-    with col_list:
-        st.markdown('<div class="card"><div class="title">客戶列表</div>', unsafe_allow_html=True)
-        if target.empty:
-            st.info("沒有符合條件的客戶")
-            selected_uid = None
-        else:
-            selected_uid = st.radio("選擇客戶", target.line_user_id.tolist(), format_func=customer_name, label_visibility="collapsed", key="selected_customer")
-            for _, r in target.head(12).iterrows():
-                st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{area_tag(customer_area(r.line_user_id))}{status_tag(r.last_status)}{read_tag(r.last_read_status)}<br><span class="muted">最後訊息：{r.last_time.strftime("%Y/%m/%d %H:%M")}｜未讀 {int(r.unread)}｜未處理 {int(r.unhandled)}</span></div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    if selected_uid:
-        info = customers_map.get(selected_uid, {})
-        with col_chat:
-            st.markdown('<div class="card"><div class="title">對話紀錄</div>', unsafe_allow_html=True)
-            cust_msgs = messages[messages.line_user_id == selected_uid].copy()
-            cust_msgs["who"] = "客戶"
-            cust_msgs["time"] = cust_msgs.received_at
-            cust_msgs["text"] = cust_msgs.message_text
-            cust_replies = replies[replies.line_user_id == selected_uid].copy() if not replies.empty else pd.DataFrame()
-            if not cust_replies.empty:
-                cust_replies["who"] = "客服"
-                cust_replies["time"] = cust_replies.replied_at
-                cust_replies["text"] = cust_replies.reply_text
-            timeline = pd.concat([
-                cust_msgs[["who", "time", "text", "id", "status", "read_status"]],
-                cust_replies[["who", "time", "text", "replied_by"]] if not cust_replies.empty else pd.DataFrame()
-            ], ignore_index=True).sort_values("time")
-            for _, r in timeline.iterrows():
-                if r.who == "客戶":
-                    st.markdown(f'<div class="meta">🟢 客戶 · {r.time.strftime("%Y/%m/%d %H:%M")} · {status_tag(r.get("status"))}{read_tag(r.get("read_status"))}</div><div class="bubble-c">{esc(r.text)}</div>', unsafe_allow_html=True)
-                    cc1, cc2, cc3 = st.columns([1, 1, 4])
-                    with cc1:
-                        if st.button("已讀", key=f"read_{r.id}"):
-                            update_message_status(r.id, r.get("status") or "未處理", "已讀")
-                            refresh()
-                    with cc2:
-                        if st.button("完成", key=f"done_{r.id}"):
-                            update_message_status(r.id, "已完成", "已讀")
-                            refresh()
-                else:
-                    st.markdown(f'<div class="meta">🔵 客服 {esc(r.get("replied_by") or "")} · {r.time.strftime("%Y/%m/%d %H:%M")}</div><div class="bubble-s">{esc(r.text)}</div>', unsafe_allow_html=True)
-            st.divider()
-            with st.form("reply_form"):
-                st.markdown("**補登客服回覆**")
-                reply_text = st.text_area("回覆內容", placeholder="輸入已在 LINE 回覆客戶的內容")
-                replied_by = st.selectbox("回覆人員", STAFF)
-                if st.form_submit_button("儲存回覆並標記待客戶回覆", use_container_width=True):
-                    if reply_text.strip():
-                        add_reply(selected_uid, reply_text.strip(), replied_by)
-                        update_customer_status(selected_uid, "待客戶回覆", replied_by, "已讀")
-                        refresh()
-                    st.warning("請輸入回覆內容")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with col_profile:
-            st.markdown('<div class="card"><div class="title">客戶資料與標記</div>', unsafe_allow_html=True)
-            st.markdown(f'{area_tag(info.get("area") or "未填")} {status_tag(target[target.line_user_id == selected_uid].last_status.iloc[0])} {read_tag(target[target.line_user_id == selected_uid].last_read_status.iloc[0])}', unsafe_allow_html=True)
-            with st.form("profile_form"):
-                name = st.text_input("姓名 / 備註名稱", value=info.get("custom_name", "") or "")
-                phone = st.text_input("電話", value=info.get("phone", "") or "")
-                area = st.selectbox("地區", AREAS, index=AREAS.index(info.get("area")) if info.get("area") in AREAS else 0)
-                address = st.text_input("地址", value=info.get("address", "") or "")
-                owner = st.selectbox("負責客服", STAFF, index=STAFF.index(info.get("owner")) if info.get("owner") in STAFF else 0)
-                vip = st.checkbox("VIP 客戶", value=bool(info.get("vip", 0)))
-                note = st.text_area("內部備註", value=info.get("note", "") or "")
-                status = st.selectbox("處理狀態", STATUS)
-                read_status = st.selectbox("讀取狀態", READ_STATUS)
-                if st.form_submit_button("更新標記", use_container_width=True):
-                    upsert_customer(selected_uid, name, phone, area, address, vip, note, owner)
-                    update_customer_status(selected_uid, status, owner, read_status)
-                    refresh()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-with tab_search:
-    st.markdown('<div class="card"><div class="title">訊息搜尋</div>', unsafe_allow_html=True)
-    f1, f2, f3, f4 = st.columns([1, 1, 1.4, 1])
+elif page == "訊息管理":
+    page_header("訊息管理", "搜尋、篩選、更新狀態")
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    f1, f2, f3, f4 = st.columns([1, 1, 1.6, 1])
     with f1:
-        search_start = st.date_input("起始日期", value=datetime(2026, 6, 22).date(), key="message_search_start")
+        start_date = st.date_input("開始日期", value=datetime(2026, 6, 22).date())
     with f2:
-        search_end = st.date_input("結束日期", value=today, key="message_search_end")
+        end_date = st.date_input("結束日期", value=today)
     with f3:
-        search_keywords = st.text_input("關鍵字", value=MESSAGE_SEARCH_KEYWORDS, help="可用逗號分隔多個關鍵字，符合任一個就會列出。", key="message_search_keywords")
+        keyword = st.text_input("關鍵字", value=MESSAGE_SEARCH_KEYWORDS)
     with f4:
-        search_area = st.selectbox("地區", ["全部"] + AREAS, key="message_search_area")
-
-    f5, f6, f7 = st.columns([1, 1, 1])
+        area = st.selectbox("標籤 / 地區", ["全部"] + AREAS)
+    f5, f6, f7 = st.columns(3)
     with f5:
-        search_status = st.selectbox("處理狀態", ["全部"] + STATUS, key="message_search_status")
+        status = st.selectbox("狀態", ["全部"] + STATUS)
     with f6:
-        search_read = st.selectbox("讀取狀態", ["全部"] + READ_STATUS, key="message_search_read")
+        read_status = st.selectbox("讀取", ["全部"] + READ_STATUS)
     with f7:
-        search_staff = st.selectbox("客服人員", ["全部"] + STAFF, key="message_search_staff")
+        staff = st.selectbox("客服", ["全部"] + STAFF)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    if search_end < search_start:
-        st.warning("結束日期不能早於起始日期。")
-        search_df = messages.iloc[0:0].copy()
-    else:
-        keywords = split_keywords(search_keywords)
-        search_df = messages[
-            (messages.received_at.dt.date >= search_start)
-            & (messages.received_at.dt.date <= search_end)
-        ].copy()
-        search_df = search_df[keyword_mask(search_df.message_text, keywords)]
-        if search_area != "全部":
-            search_df = search_df[search_df.line_user_id.apply(customer_area) == search_area]
-        if search_status != "全部":
-            search_df = search_df[search_df.status == search_status]
-        if search_read != "全部":
-            search_df = search_df[search_df.read_status == search_read]
-        if search_staff != "全部":
-            search_df = search_df[search_df.handled_by == search_staff]
+    target = messages[(messages.received_at.dt.date >= start_date) & (messages.received_at.dt.date <= end_date)].copy()
+    target = target[keyword_mask(target.message_text, split_keywords(keyword))]
+    if area != "全部":
+        target = target[target.line_user_id.apply(customer_area) == area]
+    if status != "全部":
+        target = target[target.status == status]
+    if read_status != "全部":
+        target = target[target.read_status == read_status]
+    if staff != "全部":
+        target = target[target.handled_by == staff]
 
-    metric_cols = st.columns(4)
-    with metric_cols[0]: metric("符合筆數", len(search_df), f"{search_start} 到 {search_end}")
-    with metric_cols[1]: metric("涉及客戶", search_df.line_user_id.nunique() if not search_df.empty else 0, "去重後")
-    with metric_cols[2]: metric("未處理", int((search_df.status == "未處理").sum()) if not search_df.empty else 0, "需要追蹤")
-    with metric_cols[3]: metric("未讀", int((search_df.read_status == "未讀").sum()) if not search_df.empty else 0, "尚未查看")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: stat_card("符合筆數", len(target), f"{start_date} 到 {end_date}")
+    with c2: stat_card("涉及用戶", target.line_user_id.nunique() if not target.empty else 0, "去重後")
+    with c3: stat_card("未處理", int((target.status == "未處理").sum()) if not target.empty else 0, "需要追蹤")
+    with c4: stat_card("未讀", int((target.read_status == "未讀").sum()) if not target.empty else 0, "尚未查看")
 
-    if search_df.empty:
-        st.info("沒有符合條件的訊息。")
-    else:
-        result = message_export_table(search_df)
-        st.dataframe(
-            result,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "訊息日期": st.column_config.DatetimeColumn(format="YYYY/MM/DD HH:mm"),
-                "訊息內容": st.column_config.TextColumn(width="large"),
-                "LINE ID": st.column_config.TextColumn(width="medium"),
-            },
-        )
-        csv = result.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("下載搜尋結果 CSV", csv, file_name=f"message_search_{search_start}_{search_end}.csv", mime="text/csv", use_container_width=True)
-        st.divider()
-        st.markdown("#### 訊息卡片")
-        for _, r in search_df.head(50).iterrows():
-            st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{area_tag(customer_area(r.line_user_id))}{status_tag(r.status)}{read_tag(r.read_status)}<br><span class="muted">{r.received_at.strftime("%Y/%m/%d %H:%M")}｜負責客服：{esc(r.handled_by)}</span><br>{esc(r.message_text)}</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    result = build_message_rows(target)
+    st.dataframe(
+        result,
+        use_container_width=True,
+        hide_index=True,
+        column_config={"時間": st.column_config.DatetimeColumn(format="YYYY/MM/DD HH:mm"), "內容": st.column_config.TextColumn(width="large")},
+    )
+    st.download_button("下載 CSV", result.to_csv(index=False).encode("utf-8-sig"), f"messages_{start_date}_{end_date}.csv", "text/csv")
 
-with tab_customers:
+elif page == "用戶管理":
+    page_header("用戶管理", "客戶資料、標籤與互動紀錄")
     rows = []
     for _, r in summary.iterrows():
         info = customers_map.get(r.line_user_id, {})
         rows.append({
-            "訊息日期": r.last_time,
-            "客戶": customer_name(r.line_user_id),
-            "LINE暱稱": r.display_name,
-            "地區Tag": info.get("area") or "未填",
-            "處理狀態Tag": r.last_status,
-            "讀取狀態": r.last_read_status,
+            "最後互動": r.last_time,
+            "用戶": customer_name(r.line_user_id),
+            "LINE 暱稱": r.display_name,
+            "標籤": info.get("area") or "未填",
             "電話": info.get("phone", ""),
-            "訊息數": int(r.total),
+            "互動次數": int(r.total),
             "未讀": int(r.unread),
             "未處理": int(r.unhandled),
             "LINE ID": r.line_user_id,
         })
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, column_config={"訊息日期": st.column_config.DatetimeColumn(format="YYYY/MM/DD HH:mm")})
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, column_config={"最後互動": st.column_config.DatetimeColumn(format="YYYY/MM/DD HH:mm")})
 
-with tab_requests:
+elif page == "標籤管理":
+    page_header("標籤管理", "建立可套用到用戶的分類標籤")
     left, right = st.columns([0.9, 1.1])
     with left:
-        st.markdown('<div class="card"><div class="title">建立預約需求</div>', unsafe_allow_html=True)
+        with st.form("tag_form"):
+            name = st.text_input("標籤名稱")
+            color = st.color_picker("顏色", "#06C755")
+            description = st.text_area("描述")
+            if st.form_submit_button("儲存標籤"):
+                if name.strip():
+                    save_tag(name.strip(), color, description)
+                    refresh()
+                st.warning("請輸入標籤名稱")
+    with right:
+        if tags.empty:
+            st.info("尚未建立標籤")
+        else:
+            for _, r in tags.iterrows():
+                c1, c2 = st.columns([5, 1])
+                with c1:
+                    st.markdown(f'<div class="cust"><span class="tag" style="background:{esc(r.color)};color:white">{esc(r.name)}</span><br><span class="muted">{esc(r.description)}</span></div>', unsafe_allow_html=True)
+                with c2:
+                    if st.button("刪除", key=f"del_tag_{r.id}"):
+                        delete_tag(int(r.id))
+                        refresh()
+
+elif page == "關鍵字回覆":
+    page_header("關鍵字回覆", "LINE 訊息符合關鍵字時，Worker 會自動回覆")
+    left, right = st.columns([0.9, 1.1])
+    with left:
+        with st.form("keyword_form"):
+            keyword = st.text_input("關鍵字")
+            match_type = st.selectbox("比對方式", ["contains", "exact"], format_func=lambda x: "包含" if x == "contains" else "完全符合")
+            reply_text = st.text_area("自動回覆內容")
+            enabled = st.checkbox("啟用", value=True)
+            if st.form_submit_button("新增關鍵字回覆"):
+                if keyword.strip() and reply_text.strip():
+                    save_keyword_reply(keyword.strip(), reply_text.strip(), match_type, enabled)
+                    refresh()
+                st.warning("請輸入關鍵字與回覆內容")
+    with right:
+        if keyword_replies.empty:
+            st.info("尚未建立關鍵字回覆")
+        else:
+            st.dataframe(keyword_replies.rename(columns={"keyword": "關鍵字", "reply_text": "回覆", "match_type": "比對", "enabled": "啟用"}), use_container_width=True, hide_index=True)
+            delete_id = st.number_input("刪除 ID", min_value=0, step=1)
+            if st.button("刪除關鍵字回覆") and delete_id:
+                delete_keyword_reply(int(delete_id))
+                refresh()
+
+elif page == "群發訊息":
+    page_header("群發訊息", "推播給篩選後的 LINE 用戶")
+    area_filter = st.selectbox("依地區 / 標籤篩選", ["全部"] + AREAS)
+    target_users = summary.copy()
+    if area_filter != "全部":
+        target_users = target_users[target_users.line_user_id.apply(customer_area) == area_filter]
+    st.caption(f"將推播給 {len(target_users)} 位用戶")
+    with st.form("broadcast_form"):
+        body = st.text_area("群發內容", height=160)
+        confirm = st.checkbox("我確認要群發")
+        if st.form_submit_button("送出群發"):
+            if not body.strip() or not confirm:
+                st.warning("請輸入內容並勾選確認")
+            else:
+                success = fail = 0
+                for uid in target_users.line_user_id.tolist():
+                    ok, _ = push_line_message(uid, body.strip())
+                    success += int(ok)
+                    fail += int(not ok)
+                log_broadcast(body.strip(), success, fail, len(target_users))
+                st.success(f"群發完成：成功 {success}，失敗 {fail}")
+                refresh()
+    if not broadcast_logs.empty:
+        st.dataframe(broadcast_logs, use_container_width=True, hide_index=True, column_config={"created_at": st.column_config.DatetimeColumn(format="YYYY/MM/DD HH:mm")})
+
+elif page == "預約需求":
+    page_header("預約需求")
+    left, right = st.columns([0.9, 1.1])
+    with left:
+        st.markdown('<div class="panel"><h3>建立需求</h3>', unsafe_allow_html=True)
         with st.form("request_form"):
             uid = st.selectbox("客戶", summary.line_user_id.tolist(), format_func=customer_name)
             info = customers_map.get(uid, {})
@@ -448,47 +506,48 @@ with tab_requests:
             area = st.selectbox("地區", AREAS, index=AREAS.index(info.get("area")) if info.get("area") in AREAS else 0)
             service = st.selectbox("服務類型", SERVICES)
             date = st.date_input("希望日期")
-            time = st.text_input("希望時段", placeholder="上午 / 下午 / 09:00-13:00")
+            time = st.text_input("希望時段")
             address = st.text_input("地址", value=info.get("address", "") or "")
             note = st.text_area("需求備註")
             by = st.selectbox("建立人員", STAFF)
-            if st.form_submit_button("建立預約需求", use_container_width=True):
+            if st.form_submit_button("建立"):
                 add_request({"uid": uid, "name": name, "phone": phone, "area": area, "service": service, "date": str(date), "time": time, "address": address, "note": note, "status": "新需求", "by": by})
                 refresh()
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
     with right:
-        st.markdown('<div class="card"><div class="title">預約需求列表</div>', unsafe_allow_html=True)
         if requests.empty:
             st.info("尚無預約需求")
         else:
             show = requests.rename(columns={"customer_name": "姓名", "phone": "電話", "area": "地區", "service_type": "服務", "preferred_date": "日期", "preferred_time": "時段", "status": "狀態", "created_by": "建立人", "created_at": "建立時間"})
             st.dataframe(show[["建立時間", "姓名", "電話", "地區", "服務", "日期", "時段", "狀態", "建立人"]], use_container_width=True, hide_index=True, column_config={"建立時間": st.column_config.DatetimeColumn(format="MM/DD HH:mm")})
-        st.markdown('</div>', unsafe_allow_html=True)
 
-with tab_quick:
+elif page == "快捷回覆":
+    page_header("快捷回覆")
     left, right = st.columns([1.1, 0.9])
     with left:
-        st.markdown('<div class="card"><div class="title">快捷回覆庫</div>', unsafe_allow_html=True)
         for _, r in quick.iterrows():
             st.markdown(f'<div class="quick"><span class="tag blue">{esc(r.get("category"))}</span><strong>{esc(r.get("title"))}</strong><br><br>{esc(r.get("body"))}</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     with right:
-        st.markdown('<div class="card"><div class="title">新增快捷回覆</div>', unsafe_allow_html=True)
         with st.form("quick_form"):
-            category = st.text_input("分類", placeholder="報價 / 時段 / 取消")
+            category = st.text_input("分類")
             title = st.text_input("標題")
             body = st.text_area("內容")
-            if st.form_submit_button("新增", use_container_width=True):
+            if st.form_submit_button("新增"):
                 if title and body:
                     save_quick(category, title, body)
                     refresh()
                 st.warning("請填標題與內容")
-        st.markdown('</div>', unsafe_allow_html=True)
 
-with tab_perf:
+elif page == "客服績效":
+    page_header("客服績效")
     if replies.empty:
         st.info("尚無客服回覆紀錄")
     else:
         perf = replies[replies.replied_by.astype(str).str.strip() != ""].groupby("replied_by").size().reset_index(name="回覆則數").sort_values("回覆則數", ascending=False)
         st.dataframe(perf, use_container_width=True, hide_index=True)
         st.bar_chart(perf.set_index("replied_by"), use_container_width=True)
+
+elif page == "系統設定":
+    page_header("系統設定")
+    st.info("目前資料來源為 Turso。請在 Streamlit Cloud Secrets 設定 TURSO_DATABASE_URL 與 TURSO_AUTH_TOKEN。")
+    st.code('TURSO_DATABASE_URL = "libsql://你的資料庫.turso.io"\nTURSO_AUTH_TOKEN = "你的 token"', language="toml")
