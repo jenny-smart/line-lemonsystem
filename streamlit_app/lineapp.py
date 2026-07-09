@@ -14,6 +14,7 @@ READ_STATUS = ["未讀", "已讀"]
 STAFF = ["未指派", "楊淑慧", "曾寶彤", "梁怡潔", "蔡燕萍", "蕭鵬翔", "張齊恩", "沈宛如", "陳頡維", "簡伯宏"]
 AREAS = ["未填", "台北", "新北", "桃園", "新竹", "台中", "高雄", "其他"]
 SERVICES = ["居家清潔", "空屋清潔", "大掃除", "裝潢細清", "辦公室清潔", "其他"]
+MESSAGE_SEARCH_KEYWORDS = "取消, 改, 異動, 改期, 改時間, 更改"
 
 st.markdown("""
 <style>
@@ -208,18 +209,36 @@ def message_export_table(df):
     return pd.DataFrame(rows)
 
 
+def split_keywords(value):
+    return [k.strip() for k in str(value).replace("，", ",").split(",") if k.strip()]
+
+
+def keyword_mask(series, keywords):
+    if not keywords:
+        return pd.Series(True, index=series.index)
+    text = series.fillna("").astype(str)
+    mask = pd.Series(False, index=series.index)
+    for keyword in keywords:
+        mask = mask | text.str.contains(keyword, case=False, na=False, regex=False)
+    return mask
+
+
 st.markdown('<div class="hero"><h1>🍋 Lemon LINE 客服中心</h1><p>LINE 客服接單、CRM、預約需求、快捷回覆整合後台</p></div>', unsafe_allow_html=True)
 
-tab_overview, tab_inbox, tab_cancel, tab_customers, tab_requests, tab_quick, tab_perf = st.tabs(["今日總覽", "訊息中心", "取消搜尋", "客戶中心", "預約中心", "快捷回覆", "客服績效"])
+tab_overview, tab_inbox, tab_search, tab_customers, tab_requests, tab_quick, tab_perf = st.tabs(["今日總覽", "訊息中心", "訊息搜尋", "客戶中心", "預約中心", "快捷回覆", "客服績效"])
 
 with tab_overview:
     today_msgs = messages[messages.received_at.dt.date == today]
-    cancel_count = messages[(messages.received_at.dt.date >= datetime(2026, 6, 22).date()) & messages.message_text.astype(str).str.contains("取消", case=False, na=False)].shape[0]
+    tracked_keywords = split_keywords(MESSAGE_SEARCH_KEYWORDS)
+    cancel_count = messages[
+        (messages.received_at.dt.date >= datetime(2026, 6, 22).date())
+        & keyword_mask(messages.message_text, tracked_keywords)
+    ].shape[0]
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: metric("今日新訊息", len(today_msgs), "含文字 / 圖片 / 其他")
     with c2: metric("未讀訊息", int((messages.read_status == "未讀").sum()), "需要查看")
     with c3: metric("未處理", int((messages.status == "未處理").sum()), "尚未結案")
-    with c4: metric("取消關鍵字", cancel_count, "6/22 起")
+    with c4: metric("取消 / 異動", cancel_count, "6/22 起")
     with c5: metric("預約需求", len(requests), "客服建立")
     st.write("")
     left, right = st.columns([1.2, 1])
@@ -331,36 +350,55 @@ with tab_inbox:
                     refresh()
             st.markdown('</div>', unsafe_allow_html=True)
 
-with tab_cancel:
-    st.markdown('<div class="card"><div class="title">取消訊息搜尋</div>', unsafe_allow_html=True)
-    f1, f2, f3, f4 = st.columns([1, 1, 1, 1])
+with tab_search:
+    st.markdown('<div class="card"><div class="title">訊息搜尋</div>', unsafe_allow_html=True)
+    f1, f2, f3, f4 = st.columns([1, 1, 1.4, 1])
     with f1:
-        start_date = st.date_input("起始日期", value=datetime(2026, 6, 22).date(), key="cancel_start")
+        search_start = st.date_input("起始日期", value=datetime(2026, 6, 22).date(), key="message_search_start")
     with f2:
-        cancel_keyword = st.text_input("關鍵字", value="取消", key="cancel_keyword")
+        search_end = st.date_input("結束日期", value=today, key="message_search_end")
     with f3:
-        cancel_status = st.selectbox("處理狀態", ["全部"] + STATUS, key="cancel_status")
+        search_keywords = st.text_input("關鍵字", value=MESSAGE_SEARCH_KEYWORDS, help="可用逗號分隔多個關鍵字，符合任一個就會列出。", key="message_search_keywords")
     with f4:
-        cancel_area = st.selectbox("地區", ["全部"] + AREAS, key="cancel_area")
+        search_area = st.selectbox("地區", ["全部"] + AREAS, key="message_search_area")
 
-    cancel_df = messages[messages.received_at.dt.date >= start_date].copy()
-    if cancel_keyword.strip():
-        cancel_df = cancel_df[cancel_df.message_text.astype(str).str.contains(cancel_keyword.strip(), case=False, na=False)]
-    if cancel_status != "全部":
-        cancel_df = cancel_df[cancel_df.status == cancel_status]
-    if cancel_area != "全部":
-        cancel_df = cancel_df[cancel_df.line_user_id.apply(customer_area) == cancel_area]
+    f5, f6, f7 = st.columns([1, 1, 1])
+    with f5:
+        search_status = st.selectbox("處理狀態", ["全部"] + STATUS, key="message_search_status")
+    with f6:
+        search_read = st.selectbox("讀取狀態", ["全部"] + READ_STATUS, key="message_search_read")
+    with f7:
+        search_staff = st.selectbox("客服人員", ["全部"] + STAFF, key="message_search_staff")
+
+    if search_end < search_start:
+        st.warning("結束日期不能早於起始日期。")
+        search_df = messages.iloc[0:0].copy()
+    else:
+        keywords = split_keywords(search_keywords)
+        search_df = messages[
+            (messages.received_at.dt.date >= search_start)
+            & (messages.received_at.dt.date <= search_end)
+        ].copy()
+        search_df = search_df[keyword_mask(search_df.message_text, keywords)]
+        if search_area != "全部":
+            search_df = search_df[search_df.line_user_id.apply(customer_area) == search_area]
+        if search_status != "全部":
+            search_df = search_df[search_df.status == search_status]
+        if search_read != "全部":
+            search_df = search_df[search_df.read_status == search_read]
+        if search_staff != "全部":
+            search_df = search_df[search_df.handled_by == search_staff]
 
     metric_cols = st.columns(4)
-    with metric_cols[0]: metric("符合筆數", len(cancel_df), f"{start_date} 起")
-    with metric_cols[1]: metric("涉及客戶", cancel_df.line_user_id.nunique() if not cancel_df.empty else 0, "去重後")
-    with metric_cols[2]: metric("未處理", int((cancel_df.status == "未處理").sum()) if not cancel_df.empty else 0, "需要追蹤")
-    with metric_cols[3]: metric("未讀", int((cancel_df.read_status == "未讀").sum()) if not cancel_df.empty else 0, "尚未查看")
+    with metric_cols[0]: metric("符合筆數", len(search_df), f"{search_start} 到 {search_end}")
+    with metric_cols[1]: metric("涉及客戶", search_df.line_user_id.nunique() if not search_df.empty else 0, "去重後")
+    with metric_cols[2]: metric("未處理", int((search_df.status == "未處理").sum()) if not search_df.empty else 0, "需要追蹤")
+    with metric_cols[3]: metric("未讀", int((search_df.read_status == "未讀").sum()) if not search_df.empty else 0, "尚未查看")
 
-    if cancel_df.empty:
-        st.info("沒有符合條件的取消訊息。")
+    if search_df.empty:
+        st.info("沒有符合條件的訊息。")
     else:
-        result = message_export_table(cancel_df)
+        result = message_export_table(search_df)
         st.dataframe(
             result,
             use_container_width=True,
@@ -372,10 +410,10 @@ with tab_cancel:
             },
         )
         csv = result.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("下載搜尋結果 CSV", csv, file_name=f"cancel_messages_{start_date}.csv", mime="text/csv", use_container_width=True)
+        st.download_button("下載搜尋結果 CSV", csv, file_name=f"message_search_{search_start}_{search_end}.csv", mime="text/csv", use_container_width=True)
         st.divider()
         st.markdown("#### 訊息卡片")
-        for _, r in cancel_df.head(50).iterrows():
+        for _, r in search_df.head(50).iterrows():
             st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{area_tag(customer_area(r.line_user_id))}{status_tag(r.status)}{read_tag(r.read_status)}<br><span class="muted">{r.received_at.strftime("%Y/%m/%d %H:%M")}｜負責客服：{esc(r.handled_by)}</span><br>{esc(r.message_text)}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
