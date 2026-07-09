@@ -17,7 +17,7 @@ SERVICES = ["居家清潔", "空屋清潔", "大掃除", "裝潢細清", "辦公
 
 st.markdown("""
 <style>
-.block-container{padding-top:1.2rem;max-width:1480px}.hero{background:linear-gradient(135deg,#fff7cc,#fff,#eef6ff);border:1px solid #f4e6a6;border-radius:22px;padding:22px 26px;margin-bottom:14px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.hero h1{margin:0;font-size:34px}.hero p{margin:.4rem 0 0;color:#667085}.card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:18px;box-shadow:0 8px 24px rgba(15,23,42,.045)}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:18px;min-height:108px;box-shadow:0 8px 24px rgba(15,23,42,.045)}.metric .label{font-size:13px;color:#667085}.metric .value{font-size:32px;font-weight:800;color:#111827;line-height:1.1;margin-top:8px}.metric .sub{font-size:12px;color:#667085;margin-top:8px}.title{font-size:18px;font-weight:800;margin:0 0 12px}.tag{display:inline-block;border-radius:999px;padding:3px 9px;font-size:12px;font-weight:800;margin-right:5px;background:#f3f4f6;color:#374151}.red{background:#fee2e2;color:#991b1b}.yellow{background:#fef3c7;color:#92400e}.blue{background:#dbeafe;color:#1e40af}.green{background:#dcfce7;color:#166534}.gray{background:#f3f4f6;color:#374151}.purple{background:#ede9fe;color:#5b21b6}.muted{color:#667085;font-size:12px}.cust{border:1px solid #e5e7eb;border-radius:14px;padding:12px;margin-bottom:10px;background:#fff}.bubble-c,.bubble-s{border-radius:16px;padding:12px 14px;line-height:1.55;margin-bottom:12px}.bubble-c{background:#f3f7ff;border:1px solid #dbeafe}.bubble-s{background:#f0fdf4;border:1px solid #bbf7d0}.meta{font-size:12px;color:#667085;margin-bottom:4px}.quick{background:#fafafa;border:1px dashed #d1d5db;border-radius:14px;padding:12px;margin-bottom:10px}.stTabs [data-baseweb="tab-list"]{gap:10px}.stTabs [data-baseweb="tab"]{border:1px solid #e5e7eb;border-radius:999px;padding:8px 16px;background:#fff}.stTabs [aria-selected="true"]{background:#fff7cc!important;border-color:#facc15!important;color:#111827!important;font-weight:800}
+.block-container{padding-top:1.2rem;max-width:1480px}.hero{background:linear-gradient(135deg,#fff7cc,#fff,#eef6ff);border:1px solid #f4e6a6;border-radius:22px;padding:22px 26px;margin-bottom:14px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.hero h1{margin:0;font-size:34px}.hero p{margin:.4rem 0 0;color:#667085}.card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:18px;box-shadow:0 8px 24px rgba(15,23,42,.045)}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:18px;min-height:108px;box-shadow:0 8px 24px rgba(15,23,42,.045)}.metric .label{font-size:13px;color:#667085}.metric .value{font-size:32px;font-weight:800;color:#111827;line-height:1.1;margin-top:8px}.metric .sub{font-size:12px;color:#667085;margin-top:8px}.title{font-size:18px;font-weight:800;margin:0 0 12px}.tag{display:inline-block;border-radius:999px;padding:3px 9px;font-size:12px;font-weight:800;margin-right:5px;background:#f3f4f6;color:#374151}.red{background:#fee2e2;color:#991b1b}.yellow{background:#fef3c7;color:#92400e}.blue{background:#dbeafe;color:#1e40af}.green{background:#dcfce7;color:#166534}.gray{background:#f3f4f6;color:#374151}.purple{background:#ede9fe;color:#5b21b6}.muted{color:#667085;font-size:12px}.cust{border:1px solid #e5e7eb;border-radius:14px;padding:12px;margin-bottom:10px;background:#fff}.bubble-c,.bubble-s{border-radius:16px;padding:12px 14px;line-height:1.55;margin-bottom:12px}.bubble-c{background:#f3f7ff;border:1px solid #dbeafe}.bubble-s{background:#f0fdf4;border:1px solid #bbf7d0}.meta{font-size:12px;color:#667085;margin-bottom:4px}.quick{background:#fafafa;border:1px dashed #d1d5db;border-radius:14px;padding:12px;margin-bottom:10px}.stTabs [data-baseweb="tab-list"]{gap:10px;flex-wrap:wrap}.stTabs [data-baseweb="tab"]{border:1px solid #e5e7eb;border-radius:999px;padding:8px 16px;background:#fff}.stTabs [aria-selected="true"]{background:#fff7cc!important;border-color:#facc15!important;color:#111827!important;font-weight:800}
 </style>
 """, unsafe_allow_html=True)
 
@@ -29,11 +29,14 @@ def esc(value):
 
 
 def metric(label, value, sub=""):
-    st.markdown(f'<div class="metric"><div class="label">{esc(label)}</div><div class="value">{esc(value)}</div><div class="sub">{esc(sub)}</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="metric"><div class="label">{esc(label)}</div><div class="value">{esc(value)}</div><div class="sub">{esc(sub)}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def status_tag(status):
-    cls = {"未處理":"red", "處理中":"yellow", "待客戶回覆":"blue", "已完成":"green"}.get(str(status), "gray")
+    cls = {"未處理": "red", "處理中": "yellow", "待客戶回覆": "blue", "已完成": "green"}.get(str(status), "gray")
     return f'<span class="tag {cls}">{esc(status or "未處理")}</span>'
 
 
@@ -77,11 +80,11 @@ def add_col(table, name, definition):
 def read_table(name, order=""):
     if not table_exists(name):
         return pd.DataFrame()
-    q = f"SELECT * FROM {name}"
+    query = f"SELECT * FROM {name}"
     if order:
-        q += f" ORDER BY {order}"
-    rs = sql(q)
-    return pd.DataFrame([dict(zip(rs.columns, r)) for r in rs.rows])
+        query += f" ORDER BY {order}"
+    rs = sql(query)
+    return pd.DataFrame([dict(zip(rs.columns, row)) for row in rs.rows])
 
 
 def ensure_schema():
@@ -94,13 +97,13 @@ def ensure_schema():
     add_col("line_messages", "status", "TEXT DEFAULT '未處理'")
     add_col("line_messages", "read_status", "TEXT DEFAULT '未讀'")
     add_col("line_messages", "note", "TEXT")
-    for name, definition in {"phone":"TEXT", "area":"TEXT", "address":"TEXT", "vip":"INTEGER DEFAULT 0", "owner":"TEXT"}.items():
+    for name, definition in {"phone": "TEXT", "area": "TEXT", "address": "TEXT", "vip": "INTEGER DEFAULT 0", "owner": "TEXT"}.items():
         add_col("customers", name, definition)
     if read_table("quick_replies").empty:
         seeds = [
             ("報價", "居家清潔報價", "您好，居家清潔會依坪數、清潔範圍與髒污程度報價。您可以先提供地區、坪數、想清潔的項目，我們協助您估價。"),
             ("時段", "詢問可約時段", "您好，請問您方便的日期與時段是上午、下午或晚上呢？我們會協助查詢可安排時間。"),
-            ("改期", "改期說明", "可以的，請提供原訂服務日期與希望改到的時間，我們協助您確認清潔人員檔期。"),
+            ("取消", "取消 / 異動規則", "您好，服務前 48 小時內若需異動或取消，會依付款方式與訂單規範收取異動費。若需要客服協助，請留下您的訂單資訊。"),
             ("發票", "發票資訊", "可以開立電子發票，請提供統編、抬頭與收件信箱，我們會協助處理。"),
             ("VIP", "VIP 客戶回覆", "謝謝您長期支持檸檬家事，我們會協助優先確認可安排時段。"),
         ]
@@ -136,7 +139,7 @@ def add_reply(uid, text, by):
 
 
 def add_request(data):
-    sql("""INSERT INTO service_requests(line_user_id,customer_name,phone,area,service_type,preferred_date,preferred_time,address,note,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""", [data[k] for k in ["uid","name","phone","area","service","date","time","address","note","status","by"]])
+    sql("""INSERT INTO service_requests(line_user_id,customer_name,phone,area,service_type,preferred_date,preferred_time,address,note,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""", [data[k] for k in ["uid", "name", "phone", "area", "service", "date", "time", "address", "note", "status", "by"]])
 
 
 def save_quick(category, title, body):
@@ -154,7 +157,7 @@ if messages.empty:
     st.markdown('<div class="hero"><h1>🍋 Lemon LINE 客服中心</h1><p>目前還沒有任何 LINE 訊息。</p></div>', unsafe_allow_html=True)
     st.stop()
 
-for col, default in {"status":"未處理", "read_status":"未讀", "handled_by":"未指派", "note":""}.items():
+for col, default in {"status": "未處理", "read_status": "未讀", "handled_by": "未指派", "note": ""}.items():
     if col not in messages.columns:
         messages[col] = default
     messages[col] = messages[col].fillna(default).replace("", default)
@@ -186,42 +189,61 @@ def customer_area(uid):
     return customers_map.get(uid, {}).get("area") or "未填"
 
 
+def message_export_table(df):
+    rows = []
+    for _, r in df.iterrows():
+        info = customers_map.get(r.line_user_id, {})
+        rows.append({
+            "訊息日期": r.received_at,
+            "客戶": customer_name(r.line_user_id),
+            "LINE暱稱": r.display_name,
+            "地區Tag": info.get("area") or "未填",
+            "處理狀態Tag": r.status,
+            "讀取狀態": r.read_status,
+            "負責客服": r.handled_by,
+            "訊息內容": r.message_text,
+            "LINE ID": r.line_user_id,
+            "訊息ID": r.id,
+        })
+    return pd.DataFrame(rows)
+
+
 st.markdown('<div class="hero"><h1>🍋 Lemon LINE 客服中心</h1><p>LINE 客服接單、CRM、預約需求、快捷回覆整合後台</p></div>', unsafe_allow_html=True)
 
-tab_overview, tab_inbox, tab_customers, tab_requests, tab_quick, tab_perf = st.tabs(["今日總覽", "訊息中心", "客戶中心", "預約中心", "快捷回覆", "客服績效"])
+tab_overview, tab_inbox, tab_cancel, tab_customers, tab_requests, tab_quick, tab_perf = st.tabs(["今日總覽", "訊息中心", "取消搜尋", "客戶中心", "預約中心", "快捷回覆", "客服績效"])
 
 with tab_overview:
     today_msgs = messages[messages.received_at.dt.date == today]
+    cancel_count = messages[(messages.received_at.dt.date >= datetime(2026, 6, 22).date()) & messages.message_text.astype(str).str.contains("取消", case=False, na=False)].shape[0]
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: metric("今日新訊息", len(today_msgs), "含文字 / 圖片 / 其他")
     with c2: metric("未讀訊息", int((messages.read_status == "未讀").sum()), "需要查看")
     with c3: metric("未處理", int((messages.status == "未處理").sum()), "尚未結案")
-    with c4: metric("客戶總數", messages.line_user_id.nunique(), "LINE 使用者")
+    with c4: metric("取消關鍵字", cancel_count, "6/22 起")
     with c5: metric("預約需求", len(requests), "客服建立")
     st.write("")
     left, right = st.columns([1.2, 1])
     with left:
         st.markdown('<div class="card"><div class="title">每日訊息量</div>', unsafe_allow_html=True)
-        daily = messages.groupby(messages.received_at.dt.date).size().reset_index(name="訊息數").rename(columns={"received_at":"日期"})
+        daily = messages.groupby(messages.received_at.dt.date).size().reset_index(name="訊息數").rename(columns={"received_at": "日期"})
         st.bar_chart(daily.set_index("日期"), use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with right:
         st.markdown('<div class="card"><div class="title">最近訊息</div>', unsafe_allow_html=True)
         for _, r in messages.head(8).iterrows():
-            info = customers_map.get(r.line_user_id, {})
-            st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{area_tag(info.get("area") or "未填")}{status_tag(r.status)}{read_tag(r.read_status)}<br><span class="muted">{r.received_at.strftime("%Y/%m/%d %H:%M")}</span><br>{esc(r.message_text)}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{area_tag(customer_area(r.line_user_id))}{status_tag(r.status)}{read_tag(r.read_status)}<br><span class="muted">{r.received_at.strftime("%Y/%m/%d %H:%M")}</span><br>{esc(r.message_text)}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_inbox:
     filters = st.columns([1, 1, 1, 2])
     with filters[0]:
-        status_filter = st.selectbox("處理狀態", ["全部"] + STATUS)
+        status_filter = st.selectbox("處理狀態", ["全部"] + STATUS, key="inbox_status")
     with filters[1]:
-        read_filter = st.selectbox("讀取狀態", ["全部"] + READ_STATUS)
+        read_filter = st.selectbox("讀取狀態", ["全部"] + READ_STATUS, key="inbox_read")
     with filters[2]:
-        area_filter = st.selectbox("地區", ["全部"] + AREAS)
+        area_filter = st.selectbox("地區", ["全部"] + AREAS, key="inbox_area")
     with filters[3]:
-        keyword = st.text_input("搜尋", placeholder="姓名、LINE 暱稱、訊息內容")
+        keyword = st.text_input("搜尋", placeholder="姓名、LINE 暱稱、訊息內容", key="inbox_keyword")
 
     target = summary.copy()
     if status_filter != "全部":
@@ -232,7 +254,7 @@ with tab_inbox:
         target = target[target.line_user_id.apply(customer_area) == area_filter]
     if keyword:
         matched_msg = messages[messages.message_text.astype(str).str.contains(keyword, case=False, na=False)].line_user_id.unique()
-        target = target[target.line_user_id.apply(lambda x: keyword.lower() in customer_name(x).lower() or x in matched_msg)]
+        target = target[target.line_user_id.apply(lambda uid: keyword.lower() in customer_name(uid).lower() or uid in matched_msg)]
 
     col_list, col_chat, col_profile = st.columns([0.9, 1.45, 0.9])
     with col_list:
@@ -241,7 +263,7 @@ with tab_inbox:
             st.info("沒有符合條件的客戶")
             selected_uid = None
         else:
-            selected_uid = st.radio("選擇客戶", target.line_user_id.tolist(), format_func=customer_name, label_visibility="collapsed")
+            selected_uid = st.radio("選擇客戶", target.line_user_id.tolist(), format_func=customer_name, label_visibility="collapsed", key="selected_customer")
             for _, r in target.head(12).iterrows():
                 st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{area_tag(customer_area(r.line_user_id))}{status_tag(r.last_status)}{read_tag(r.last_read_status)}<br><span class="muted">最後訊息：{r.last_time.strftime("%Y/%m/%d %H:%M")}｜未讀 {int(r.unread)}｜未處理 {int(r.unhandled)}</span></div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -309,6 +331,54 @@ with tab_inbox:
                     refresh()
             st.markdown('</div>', unsafe_allow_html=True)
 
+with tab_cancel:
+    st.markdown('<div class="card"><div class="title">取消訊息搜尋</div>', unsafe_allow_html=True)
+    f1, f2, f3, f4 = st.columns([1, 1, 1, 1])
+    with f1:
+        start_date = st.date_input("起始日期", value=datetime(2026, 6, 22).date(), key="cancel_start")
+    with f2:
+        cancel_keyword = st.text_input("關鍵字", value="取消", key="cancel_keyword")
+    with f3:
+        cancel_status = st.selectbox("處理狀態", ["全部"] + STATUS, key="cancel_status")
+    with f4:
+        cancel_area = st.selectbox("地區", ["全部"] + AREAS, key="cancel_area")
+
+    cancel_df = messages[messages.received_at.dt.date >= start_date].copy()
+    if cancel_keyword.strip():
+        cancel_df = cancel_df[cancel_df.message_text.astype(str).str.contains(cancel_keyword.strip(), case=False, na=False)]
+    if cancel_status != "全部":
+        cancel_df = cancel_df[cancel_df.status == cancel_status]
+    if cancel_area != "全部":
+        cancel_df = cancel_df[cancel_df.line_user_id.apply(customer_area) == cancel_area]
+
+    metric_cols = st.columns(4)
+    with metric_cols[0]: metric("符合筆數", len(cancel_df), f"{start_date} 起")
+    with metric_cols[1]: metric("涉及客戶", cancel_df.line_user_id.nunique() if not cancel_df.empty else 0, "去重後")
+    with metric_cols[2]: metric("未處理", int((cancel_df.status == "未處理").sum()) if not cancel_df.empty else 0, "需要追蹤")
+    with metric_cols[3]: metric("未讀", int((cancel_df.read_status == "未讀").sum()) if not cancel_df.empty else 0, "尚未查看")
+
+    if cancel_df.empty:
+        st.info("沒有符合條件的取消訊息。")
+    else:
+        result = message_export_table(cancel_df)
+        st.dataframe(
+            result,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "訊息日期": st.column_config.DatetimeColumn(format="YYYY/MM/DD HH:mm"),
+                "訊息內容": st.column_config.TextColumn(width="large"),
+                "LINE ID": st.column_config.TextColumn(width="medium"),
+            },
+        )
+        csv = result.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("下載搜尋結果 CSV", csv, file_name=f"cancel_messages_{start_date}.csv", mime="text/csv", use_container_width=True)
+        st.divider()
+        st.markdown("#### 訊息卡片")
+        for _, r in cancel_df.head(50).iterrows():
+            st.markdown(f'<div class="cust"><strong>{esc(customer_name(r.line_user_id))}</strong><br>{area_tag(customer_area(r.line_user_id))}{status_tag(r.status)}{read_tag(r.read_status)}<br><span class="muted">{r.received_at.strftime("%Y/%m/%d %H:%M")}｜負責客服：{esc(r.handled_by)}</span><br>{esc(r.message_text)}</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
 with tab_customers:
     rows = []
     for _, r in summary.iterrows():
@@ -353,7 +423,7 @@ with tab_requests:
         if requests.empty:
             st.info("尚無預約需求")
         else:
-            show = requests.rename(columns={"customer_name":"姓名", "phone":"電話", "area":"地區", "service_type":"服務", "preferred_date":"日期", "preferred_time":"時段", "status":"狀態", "created_by":"建立人", "created_at":"建立時間"})
+            show = requests.rename(columns={"customer_name": "姓名", "phone": "電話", "area": "地區", "service_type": "服務", "preferred_date": "日期", "preferred_time": "時段", "status": "狀態", "created_by": "建立人", "created_at": "建立時間"})
             st.dataframe(show[["建立時間", "姓名", "電話", "地區", "服務", "日期", "時段", "狀態", "建立人"]], use_container_width=True, hide_index=True, column_config={"建立時間": st.column_config.DatetimeColumn(format="MM/DD HH:mm")})
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -367,7 +437,7 @@ with tab_quick:
     with right:
         st.markdown('<div class="card"><div class="title">新增快捷回覆</div>', unsafe_allow_html=True)
         with st.form("quick_form"):
-            category = st.text_input("分類", placeholder="報價 / 時段 / 改期")
+            category = st.text_input("分類", placeholder="報價 / 時段 / 取消")
             title = st.text_input("標題")
             body = st.text_area("內容")
             if st.form_submit_button("新增", use_container_width=True):
