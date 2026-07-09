@@ -34,6 +34,42 @@ async function getDisplayName(userId, accessToken) {
   }
 }
 
+async function replyMessage(replyToken, text, accessToken) {
+  if (!replyToken || !text) return false;
+  try {
+    const res = await fetch("https://api.line.me/v2/bot/message/reply", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        replyToken,
+        messages: [{ type: "text", text }],
+      }),
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function findKeywordReply(db, messageText) {
+  if (!messageText) return null;
+  const rs = await db.execute({
+    sql: "SELECT keyword, reply_text, match_type FROM keyword_replies WHERE enabled=1 ORDER BY id ASC",
+    args: [],
+  });
+  for (const row of rs.rows || []) {
+    const keyword = row.keyword || row[0];
+    const replyText = row.reply_text || row[1];
+    const matchType = row.match_type || row[2] || "contains";
+    if (matchType === "exact" && messageText === keyword) return replyText;
+    if (matchType !== "exact" && messageText.includes(keyword)) return replyText;
+  }
+  return null;
+}
+
 export default {
   async fetch(request, env) {
     if (request.method !== "POST") {
@@ -77,6 +113,13 @@ export default {
               VALUES (?, ?, ?, ?, datetime('now'))`,
         args: [userId, displayName, messageText, messageType],
       });
+
+      if (messageType === "text") {
+        const autoReply = await findKeywordReply(db, messageText);
+        if (autoReply) {
+          await replyMessage(event.replyToken, autoReply, env.LINE_CHANNEL_ACCESS_TOKEN);
+        }
+      }
     }
 
     return new Response("OK", { status: 200 });

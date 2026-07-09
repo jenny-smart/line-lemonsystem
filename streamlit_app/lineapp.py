@@ -94,12 +94,16 @@ def ensure_schema():
     sql("""CREATE TABLE IF NOT EXISTS replies(id INTEGER PRIMARY KEY AUTOINCREMENT,line_user_id TEXT NOT NULL,reply_text TEXT,replied_by TEXT,replied_at TEXT DEFAULT (datetime('now')))""")
     sql("""CREATE TABLE IF NOT EXISTS service_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,line_user_id TEXT NOT NULL,customer_name TEXT,phone TEXT,area TEXT,service_type TEXT,preferred_date TEXT,preferred_time TEXT,address TEXT,note TEXT,status TEXT DEFAULT '新需求',created_by TEXT,created_at TEXT DEFAULT (datetime('now')))""")
     sql("""CREATE TABLE IF NOT EXISTS quick_replies(id INTEGER PRIMARY KEY AUTOINCREMENT,category TEXT,title TEXT,body TEXT,updated_at TEXT DEFAULT (datetime('now')))""")
+    sql("""CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE,color TEXT DEFAULT '#06C755',description TEXT,created_at TEXT DEFAULT (datetime('now')))""")
+    sql("""CREATE TABLE IF NOT EXISTS keyword_replies(id INTEGER PRIMARY KEY AUTOINCREMENT,keyword TEXT NOT NULL,reply_text TEXT NOT NULL,match_type TEXT DEFAULT 'contains',enabled INTEGER DEFAULT 1,updated_at TEXT DEFAULT (datetime('now')))""")
+    sql("""CREATE TABLE IF NOT EXISTS broadcast_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,message TEXT,success_count INTEGER DEFAULT 0,fail_count INTEGER DEFAULT 0,total_count INTEGER DEFAULT 0,created_at TEXT DEFAULT (datetime('now')))""")
     add_col("line_messages", "handled_by", "TEXT")
     add_col("line_messages", "status", "TEXT DEFAULT '未處理'")
     add_col("line_messages", "read_status", "TEXT DEFAULT '未讀'")
     add_col("line_messages", "note", "TEXT")
     for name, definition in {"phone": "TEXT", "area": "TEXT", "address": "TEXT", "vip": "INTEGER DEFAULT 0", "owner": "TEXT"}.items():
         add_col("customers", name, definition)
+    add_col("customers", "tags", "TEXT")
     if read_table("quick_replies").empty:
         seeds = [
             ("報價", "居家清潔報價", "您好，居家清潔會依坪數、清潔範圍與髒污程度報價。您可以先提供地區、坪數、想清潔的項目，我們協助您估價。"),
@@ -147,12 +151,52 @@ def save_quick(category, title, body):
     sql("INSERT INTO quick_replies(category,title,body,updated_at) VALUES(?,?,?,datetime('now'))", [category, title, body])
 
 
+def save_tag(name, color, description):
+    sql("""INSERT INTO tags(name,color,description,created_at) VALUES(?,?,?,datetime('now')) ON CONFLICT(name) DO UPDATE SET color=excluded.color,description=excluded.description""", [name, color, description])
+
+
+def delete_tag(tag_id):
+    sql("DELETE FROM tags WHERE id=?", [tag_id])
+
+
+def save_keyword_reply(keyword, reply_text, match_type, enabled):
+    sql("INSERT INTO keyword_replies(keyword,reply_text,match_type,enabled,updated_at) VALUES(?,?,?,?,datetime('now'))", [keyword, reply_text, match_type, int(enabled)])
+
+
+def delete_keyword_reply(reply_id):
+    sql("DELETE FROM keyword_replies WHERE id=?", [reply_id])
+
+
+def push_line_message(uid, text):
+    import requests
+    token = st.secrets.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+    if not token:
+        return False, "missing_token"
+    try:
+        res = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"to": uid, "messages": [{"type": "text", "text": text}]},
+            timeout=10,
+        )
+        return res.ok, str(res.status_code)
+    except Exception as exc:
+        return False, str(exc)
+
+
+def log_broadcast(message, success, fail, total):
+    sql("INSERT INTO broadcast_logs(message,success_count,fail_count,total_count,created_at) VALUES(?,?,?,?,datetime('now'))", [message, success, fail, total])
+
+
 ensure_schema()
 messages = to_taipei(read_table("line_messages", "received_at DESC"), "received_at")
 replies = to_taipei(read_table("replies", "replied_at DESC"), "replied_at")
 customers = read_table("customers")
 requests = to_taipei(read_table("service_requests", "created_at DESC"), "created_at")
 quick = read_table("quick_replies", "category,title")
+tags = read_table("tags", "name")
+keyword_replies = read_table("keyword_replies", "id DESC")
+broadcast_logs = to_taipei(read_table("broadcast_logs", "created_at DESC"), "created_at")
 
 if messages.empty:
     st.markdown('<div class="hero"><h1>🍋 Lemon LINE 客服中心</h1><p>目前還沒有任何 LINE 訊息。</p></div>', unsafe_allow_html=True)
@@ -279,7 +323,7 @@ with st.sidebar:
     st.caption("Lemon 客服後台")
     page = st.radio(
         "主選單",
-        ["儀表板", "訊息管理", "用戶管理", "預約需求", "快捷回覆", "客服績效", "系統設定"],
+        ["儀表板", "訊息管理", "用戶管理", "標籤管理", "關鍵字回覆", "群發訊息", "預約需求", "快捷回覆", "客服績效", "系統設定"],
         label_visibility="collapsed",
     )
 
@@ -373,6 +417,81 @@ elif page == "用戶管理":
             "LINE ID": r.line_user_id,
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, column_config={"最後互動": st.column_config.DatetimeColumn(format="YYYY/MM/DD HH:mm")})
+
+elif page == "標籤管理":
+    page_header("標籤管理", "建立可套用到用戶的分類標籤")
+    left, right = st.columns([0.9, 1.1])
+    with left:
+        with st.form("tag_form"):
+            name = st.text_input("標籤名稱")
+            color = st.color_picker("顏色", "#06C755")
+            description = st.text_area("描述")
+            if st.form_submit_button("儲存標籤"):
+                if name.strip():
+                    save_tag(name.strip(), color, description)
+                    refresh()
+                st.warning("請輸入標籤名稱")
+    with right:
+        if tags.empty:
+            st.info("尚未建立標籤")
+        else:
+            for _, r in tags.iterrows():
+                c1, c2 = st.columns([5, 1])
+                with c1:
+                    st.markdown(f'<div class="cust"><span class="tag" style="background:{esc(r.color)};color:white">{esc(r.name)}</span><br><span class="muted">{esc(r.description)}</span></div>', unsafe_allow_html=True)
+                with c2:
+                    if st.button("刪除", key=f"del_tag_{r.id}"):
+                        delete_tag(int(r.id))
+                        refresh()
+
+elif page == "關鍵字回覆":
+    page_header("關鍵字回覆", "LINE 訊息符合關鍵字時，Worker 會自動回覆")
+    left, right = st.columns([0.9, 1.1])
+    with left:
+        with st.form("keyword_form"):
+            keyword = st.text_input("關鍵字")
+            match_type = st.selectbox("比對方式", ["contains", "exact"], format_func=lambda x: "包含" if x == "contains" else "完全符合")
+            reply_text = st.text_area("自動回覆內容")
+            enabled = st.checkbox("啟用", value=True)
+            if st.form_submit_button("新增關鍵字回覆"):
+                if keyword.strip() and reply_text.strip():
+                    save_keyword_reply(keyword.strip(), reply_text.strip(), match_type, enabled)
+                    refresh()
+                st.warning("請輸入關鍵字與回覆內容")
+    with right:
+        if keyword_replies.empty:
+            st.info("尚未建立關鍵字回覆")
+        else:
+            st.dataframe(keyword_replies.rename(columns={"keyword": "關鍵字", "reply_text": "回覆", "match_type": "比對", "enabled": "啟用"}), use_container_width=True, hide_index=True)
+            delete_id = st.number_input("刪除 ID", min_value=0, step=1)
+            if st.button("刪除關鍵字回覆") and delete_id:
+                delete_keyword_reply(int(delete_id))
+                refresh()
+
+elif page == "群發訊息":
+    page_header("群發訊息", "推播給篩選後的 LINE 用戶")
+    area_filter = st.selectbox("依地區 / 標籤篩選", ["全部"] + AREAS)
+    target_users = summary.copy()
+    if area_filter != "全部":
+        target_users = target_users[target_users.line_user_id.apply(customer_area) == area_filter]
+    st.caption(f"將推播給 {len(target_users)} 位用戶")
+    with st.form("broadcast_form"):
+        body = st.text_area("群發內容", height=160)
+        confirm = st.checkbox("我確認要群發")
+        if st.form_submit_button("送出群發"):
+            if not body.strip() or not confirm:
+                st.warning("請輸入內容並勾選確認")
+            else:
+                success = fail = 0
+                for uid in target_users.line_user_id.tolist():
+                    ok, _ = push_line_message(uid, body.strip())
+                    success += int(ok)
+                    fail += int(not ok)
+                log_broadcast(body.strip(), success, fail, len(target_users))
+                st.success(f"群發完成：成功 {success}，失敗 {fail}")
+                refresh()
+    if not broadcast_logs.empty:
+        st.dataframe(broadcast_logs, use_container_width=True, hide_index=True, column_config={"created_at": st.column_config.DatetimeColumn(format="YYYY/MM/DD HH:mm")})
 
 elif page == "預約需求":
     page_header("預約需求")
