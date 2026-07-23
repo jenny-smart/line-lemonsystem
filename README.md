@@ -25,6 +25,7 @@ npx wrangler secret put LINE_CHANNEL_ACCESS_TOKEN
 npx wrangler secret put TURSO_DATABASE_URL
 npx wrangler secret put TURSO_AUTH_TOKEN
 npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put REMINDER_API_KEY
 
 # 部署
 npx wrangler deploy
@@ -71,9 +72,22 @@ CREATE TABLE line_messages (
 );
 ```
 
+## 週末服務 LINE 提醒
+
+同一個 Worker 也負責週末服務提醒，不需要新增第二個 LINE Webhook：
+
+- `orders-system` 呼叫 `/api/reminders/schedule` 建立排程。
+- Cloudflare Cron 每分鐘檢查到期排程，可設定任意分鐘。
+- 提醒訊息包含「已收到」Quick Reply（Postback）。
+- 客人點擊後記錄訂單編號、服務日期、LINE user ID、發送及回覆時間。
+- `orders-system` 透過 `/api/reminders/status` 同步並留存結果。
+
+請為 `REMINDER_API_KEY` 產生高強度隨機值，並在 Cloudflare Worker Secret 與
+`orders-system` Streamlit Secrets 使用相同內容，不可提交到 GitHub。
+
 ## 安全提醒
 
-- `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`TURSO_AUTH_TOKEN` 絕對不要 commit 進 GitHub
+- `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`TURSO_AUTH_TOKEN`、`REMINDER_API_KEY` 絕對不要 commit 進 GitHub
 - `.gitignore` 已排除 `.dev.vars`、`secrets.toml` 等機密檔案
 - 若 Token 曾經貼在聊天視窗或公開過，建議到 Turso / LINE 後台重新產生一組新的
 
