@@ -44,6 +44,12 @@ test("sends due reminder and records postback reply", async () => {
             reminder_key: "LC001|2026-07-25",
             line_user_id: "U-user",
             message_text: "提醒",
+            scheduled_at: "2026-07-24T01:02:00.000Z",
+          }, {
+            reminder_key: "LC002|2026-07-25",
+            line_user_id: "U-future",
+            message_text: "未到時間",
+            scheduled_at: "2026-07-24T01:05:00.000Z",
           }],
         };
       }

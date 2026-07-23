@@ -228,10 +228,13 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(processDueReminders(
-      connectDb(env),
-      env.LINE_CHANNEL_ACCESS_TOKEN,
-      { now: new Date(controller.scheduledTime) },
-    ));
+    ctx.waitUntil((async () => {
+      const result = await processDueReminders(
+        connectDb(env),
+        env.LINE_CHANNEL_ACCESS_TOKEN,
+        { now: new Date(controller.scheduledTime) },
+      );
+      console.log("Reminder cron result", JSON.stringify(result));
+    })());
   },
 };

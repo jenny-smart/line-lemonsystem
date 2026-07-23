@@ -138,16 +138,24 @@ export async function processDueReminders(
   { now = new Date(), fetchImpl = fetch, limit = 100 } = {},
 ) {
   await ensureReminderSchema(db);
-  const due = await db.execute({
-    sql: `SELECT reminder_key, line_user_id, message_text
+  const scheduled = await db.execute({
+    sql: `SELECT reminder_key, line_user_id, message_text, scheduled_at
           FROM weekend_reminders
-          WHERE status='scheduled' AND scheduled_at <= ?
+          WHERE status='scheduled'
           ORDER BY scheduled_at ASC LIMIT ?`,
-    args: [now.toISOString(), limit],
+    args: [limit],
+  });
+  // Turso/SQLite deployments can compare ISO timestamp parameters differently
+  // depending on the stored value's offset format. Parse both sides in
+  // JavaScript so an already-due reminder is never skipped by text comparison.
+  const nowMs = now.getTime();
+  const dueRows = (scheduled.rows || []).filter((row) => {
+    const scheduledMs = new Date(String(row.scheduled_at || "")).getTime();
+    return Number.isFinite(scheduledMs) && scheduledMs <= nowMs;
   });
   let sent = 0;
   let failed = 0;
-  for (const row of due.rows || []) {
+  for (const row of dueRows) {
     const response = await pushReminder(
       row.line_user_id,
       buildQuickReplyMessage(row.message_text, row.reminder_key),
@@ -173,7 +181,7 @@ export async function processDueReminders(
       });
     }
   }
-  return { found: (due.rows || []).length, sent, failed };
+  return { found: dueRows.length, sent, failed };
 }
 
 export async function recordReminderReply(db, reminderKey, lineUserId, now = new Date()) {
