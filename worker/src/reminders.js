@@ -155,6 +155,7 @@ export async function processDueReminders(
   });
   let sent = 0;
   let failed = 0;
+  const errors = [];
   for (const row of dueRows) {
     const response = await pushReminder(
       row.line_user_id,
@@ -173,6 +174,7 @@ export async function processDueReminders(
     } else {
       failed += 1;
       const errorText = `${response.status} ${(await response.text()).slice(0, 500)}`.trim();
+      errors.push({ reminderKey: row.reminder_key, detail: errorText });
       await db.execute({
         sql: `UPDATE weekend_reminders
               SET status='failed', last_error=?, updated_at=?
@@ -188,6 +190,7 @@ export async function processDueReminders(
     scanned: (scheduled.rows || []).length,
     now: Number.isFinite(nowMs) ? new Date(nowMs).toISOString() : String(now),
     nextScheduledAt: scheduled.rows?.[0]?.scheduled_at || null,
+    errors,
   };
 }
 

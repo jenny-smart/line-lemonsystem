@@ -76,6 +76,7 @@ test("sends due reminder and records postback reply", async () => {
     scanned: 2,
     now: "2026-07-24T01:03:00.000Z",
     nextScheduledAt: "2026-07-24T01:02:00.000Z",
+    errors: [],
   });
   assert.equal(pushed.to, "U-user");
   assert.equal(pushed.messages[0].quickReply.items[0].action.label, "已收到");
