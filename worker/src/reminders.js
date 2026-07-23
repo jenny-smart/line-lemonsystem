@@ -181,7 +181,14 @@ export async function processDueReminders(
       });
     }
   }
-  return { found: dueRows.length, sent, failed };
+  return {
+    found: dueRows.length,
+    sent,
+    failed,
+    scanned: (scheduled.rows || []).length,
+    now: Number.isFinite(nowMs) ? new Date(nowMs).toISOString() : String(now),
+    nextScheduledAt: scheduled.rows?.[0]?.scheduled_at || null,
+  };
 }
 
 export async function recordReminderReply(db, reminderKey, lineUserId, now = new Date()) {
