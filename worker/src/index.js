@@ -1,5 +1,12 @@
 import { createClient } from "@libsql/client/web";
 import { classifyRisk, generateAiReply, HUMAN_HANDOFF_REPLY } from "./ai.js";
+import {
+  parseReminderPostback,
+  processDueReminders,
+  recordReminderReply,
+  reminderStatuses,
+  scheduleReminders,
+} from "./reminders.js";
 
 /**
  * 驗證 LINE webhook 簽章
@@ -89,8 +96,60 @@ async function markForHuman(db, userId, reason) {
   });
 }
 
+function connectDb(env) {
+  return createClient({
+    url: env.TURSO_DATABASE_URL,
+    authToken: env.TURSO_AUTH_TOKEN,
+  });
+}
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
+}
+
+function authorized(request, env) {
+  return Boolean(env.REMINDER_API_KEY) &&
+    request.headers.get("authorization") === `Bearer ${env.REMINDER_API_KEY}`;
+}
+
+async function reminderApi(request, env, pathname) {
+  if (!env.REMINDER_API_KEY) {
+    return jsonResponse({ error: "REMINDER_API_KEY is not configured" }, 503);
+  }
+  if (!authorized(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, 401);
+  }
+  const db = connectDb(env);
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid_json" }, 400);
+  }
+  try {
+    if (request.method === "POST" && pathname === "/api/reminders/schedule") {
+      const saved = await scheduleReminders(db, body.reminders);
+      return jsonResponse({ ok: true, reminders: saved });
+    }
+    if (request.method === "POST" && pathname === "/api/reminders/status") {
+      const reminders = await reminderStatuses(db, body.keys);
+      return jsonResponse({ ok: true, reminders });
+    }
+  } catch (error) {
+    return jsonResponse({ error: String(error?.message || error) }, 400);
+  }
+  return jsonResponse({ error: "not_found" }, 404);
+}
+
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/reminders/")) {
+      return reminderApi(request, env, url.pathname);
+    }
     if (request.method !== "POST") {
       return new Response("LINE webhook is running.", { status: 200 });
     }
@@ -108,16 +167,24 @@ export default {
     const events = body.events || [];
 
     // 2. 連線 Turso
-    const db = createClient({
-      url: env.TURSO_DATABASE_URL,
-      authToken: env.TURSO_AUTH_TOKEN,
-    });
+    const db = connectDb(env);
 
     for (const event of events) {
-      // 只記錄使用者傳來的訊息（message 事件），其他事件（加入好友、封鎖等）可依需求擴充
+      const userId = event.source?.userId;
+      if (event.type === "postback") {
+        const reminder = parseReminderPostback(event.postback?.data);
+        if (reminder && userId) {
+          const recorded = await recordReminderReply(db, reminder.reminderKey, userId);
+          if (recorded) {
+            await replyMessage(event.replyToken, "已記錄您收到服務提醒，謝謝您。", env.LINE_CHANNEL_ACCESS_TOKEN);
+          }
+        }
+        continue;
+      }
+
+      // 一般客服訊息維持原有紀錄與自動回覆流程。
       if (event.type !== "message") continue;
 
-      const userId = event.source?.userId;
       if (!userId) continue;
 
       const messageType = event.message?.type || "unknown";
@@ -158,5 +225,13 @@ export default {
     }
 
     return new Response("OK", { status: 200 });
+  },
+
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(processDueReminders(
+      connectDb(env),
+      env.LINE_CHANNEL_ACCESS_TOKEN,
+      { now: new Date(controller.scheduledTime) },
+    ));
   },
 };

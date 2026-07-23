@@ -1,6 +1,6 @@
 # LINE 客服訊息紀錄系統
 
-LINE 官方帳號 webhook → Cloudflare Worker → Turso (SQLite) → Streamlit 統計面板
+LINE 官方帳號 webhook → Cloudflare Worker → 規則/AI 回覆 → Turso (SQLite) → Streamlit 統計面板
 
 ## 架構
 
@@ -24,6 +24,8 @@ npx wrangler secret put LINE_CHANNEL_SECRET
 npx wrangler secret put LINE_CHANNEL_ACCESS_TOKEN
 npx wrangler secret put TURSO_DATABASE_URL
 npx wrangler secret put TURSO_AUTH_TOKEN
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put REMINDER_API_KEY
 
 # 部署
 npx wrangler deploy
@@ -70,8 +72,29 @@ CREATE TABLE line_messages (
 );
 ```
 
+## 週末服務 LINE 提醒
+
+同一個 Worker 也負責週末服務提醒，不需要新增第二個 LINE Webhook：
+
+- `orders-system` 呼叫 `/api/reminders/schedule` 建立排程。
+- Cloudflare Cron 每分鐘檢查到期排程，可設定任意分鐘。
+- 提醒訊息包含「已收到」Quick Reply（Postback）。
+- 客人點擊後記錄訂單編號、服務日期、LINE user ID、發送及回覆時間。
+- `orders-system` 透過 `/api/reminders/status` 同步並留存結果。
+
+請為 `REMINDER_API_KEY` 產生高強度隨機值，並在 Cloudflare Worker Secret 與
+`orders-system` Streamlit Secrets 使用相同內容，不可提交到 GitHub。
+
 ## 安全提醒
 
-- `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`TURSO_AUTH_TOKEN` 絕對不要 commit 進 GitHub
+- `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`TURSO_AUTH_TOKEN`、`REMINDER_API_KEY` 絕對不要 commit 進 GitHub
 - `.gitignore` 已排除 `.dev.vars`、`secrets.toml` 等機密檔案
 - 若 Token 曾經貼在聊天視窗或公開過，建議到 Turso / LINE 後台重新產生一組新的
+
+## AI 回覆安全分層
+
+- 第一層：預約流程、服務範圍、會員查詢等，可依模板自動回覆。
+- 第二層：報價、VIP、取消改期，只說明規則或蒐集資料，提示由專人確認。
+- 第三層：客訴、退費、清潔不滿、賠償與金額爭議，停止 AI 代答並標記轉人工。
+- 回覆順序為「資料庫自訂關鍵字 → 精簡規則上下文的 AI → 不回覆」，可降低 API token 與幻覺風險。
+- 設定 `AI_AUTO_REPLY = "off"` 可隨時關閉 AI，保留既有關鍵字回覆。
