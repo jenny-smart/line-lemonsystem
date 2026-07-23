@@ -197,26 +197,6 @@ export async function processDueReminders(
       });
     }
   }
-  const recentFailure = await db.execute({
-    sql: `SELECT last_error, line_user_id
-          FROM weekend_reminders
-          WHERE status='failed' AND last_error IS NOT NULL
-          ORDER BY updated_at DESC LIMIT 1`,
-    args: [],
-  });
-  let latestProfileStatus = null;
-  const failedLineUserId = recentFailure.rows?.[0]?.line_user_id;
-  if (failedLineUserId) {
-    try {
-      const profileResponse = await fetchImpl(
-        `https://api.line.me/v2/bot/profile/${encodeURIComponent(failedLineUserId)}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      );
-      latestProfileStatus = profileResponse.status;
-    } catch {
-      latestProfileStatus = "diagnostic_failed";
-    }
-  }
   return {
     found: dueRows.length,
     sent,
@@ -225,8 +205,6 @@ export async function processDueReminders(
     now: Number.isFinite(nowMs) ? new Date(nowMs).toISOString() : String(now),
     nextScheduledAt: scheduled.rows?.[0]?.scheduled_at || null,
     errors,
-    latestError: recentFailure.rows?.[0]?.last_error || null,
-    latestProfileStatus,
   };
 }
 
