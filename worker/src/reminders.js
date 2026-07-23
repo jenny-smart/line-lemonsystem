@@ -174,13 +174,47 @@ export async function processDueReminders(
     } else {
       failed += 1;
       const errorText = `${response.status} ${(await response.text()).slice(0, 500)}`.trim();
-      errors.push({ reminderKey: row.reminder_key, detail: errorText });
+      let bot = null;
+      try {
+        const botResponse = await fetchImpl("https://api.line.me/v2/bot/info", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const botBody = await botResponse.json();
+        bot = {
+          status: botResponse.status,
+          displayName: botBody.displayName || null,
+          basicId: botBody.basicId || null,
+        };
+      } catch {
+        bot = { status: "diagnostic_failed" };
+      }
+      errors.push({ reminderKey: row.reminder_key, detail: errorText, bot });
       await db.execute({
         sql: `UPDATE weekend_reminders
               SET status='failed', last_error=?, updated_at=?
               WHERE reminder_key=? AND status='scheduled'`,
         args: [errorText, now.toISOString(), row.reminder_key],
       });
+    }
+  }
+  const recentFailure = await db.execute({
+    sql: `SELECT last_error, line_user_id
+          FROM weekend_reminders
+          WHERE status='failed' AND last_error IS NOT NULL
+          ORDER BY updated_at DESC LIMIT 1`,
+    args: [],
+  });
+  let latestProfileStatus = null;
+  const failedLineUserId = recentFailure.rows?.[0]?.line_user_id;
+  if (failedLineUserId) {
+    try {
+      const profileResponse = await fetchImpl(
+        `https://api.line.me/v2/bot/profile/${encodeURIComponent(failedLineUserId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      latestProfileStatus = profileResponse.status;
+    } catch {
+      latestProfileStatus = "diagnostic_failed";
     }
   }
   return {
@@ -191,6 +225,8 @@ export async function processDueReminders(
     now: Number.isFinite(nowMs) ? new Date(nowMs).toISOString() : String(now),
     nextScheduledAt: scheduled.rows?.[0]?.scheduled_at || null,
     errors,
+    latestError: recentFailure.rows?.[0]?.last_error || null,
+    latestProfileStatus,
   };
 }
 

@@ -138,6 +138,20 @@ async function reminderApi(request, env, pathname) {
       const reminders = await reminderStatuses(db, body.keys);
       return jsonResponse({ ok: true, reminders });
     }
+    if (request.method === "POST" && pathname === "/api/reminders/recipients") {
+      const query = String(body.query || "").trim();
+      if (query.length < 2) {
+        return jsonResponse({ error: "query_too_short" }, 400);
+      }
+      const found = await db.execute({
+        sql: `SELECT line_user_id, display_name, message_text, received_at
+              FROM line_messages
+              WHERE display_name LIKE ? OR message_text LIKE ?
+              ORDER BY id DESC LIMIT 20`,
+        args: [`%${query}%`, `%${query}%`],
+      });
+      return jsonResponse({ ok: true, recipients: found.rows || [] });
+    }
   } catch (error) {
     return jsonResponse({ error: String(error?.message || error) }, 400);
   }
