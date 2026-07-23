@@ -8,6 +8,7 @@ import {
   parseReminderPostback,
   processDueReminders,
   recordReminderReply,
+  scheduleReminders,
 } from "../src/reminders.js";
 
 test("builds a stable reminder key", () => {
@@ -31,6 +32,28 @@ test("parses only reminder postbacks", () => {
     { reminderKey: "LC001|2026-07-25" },
   );
   assert.equal(parseReminderPostback("action=other&key=LC001"), null);
+});
+
+test("does not reset reminders that were already sent", async () => {
+  let upsertSql = "";
+  const db = {
+    async execute(query) {
+      if (typeof query === "string") return { rows: [] };
+      upsertSql = query.sql;
+      return { rowsAffected: 0, rows: [] };
+    },
+  };
+  await scheduleReminders(db, [{
+    order_no: "LC001",
+    service_date: "2026-07-25",
+    line_user_id: "U-user",
+    message_text: "提醒",
+    scheduled_at: "2026-07-24T01:00:00.000Z",
+  }]);
+  assert.match(
+    upsertSql,
+    /WHERE weekend_reminders\.status IN \('scheduled', 'failed'\)/,
+  );
 });
 
 test("sends due reminder and records postback reply", async () => {
