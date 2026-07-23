@@ -95,7 +95,8 @@ export async function scheduleReminders(db, reminders, now = new Date()) {
               sent_at=NULL,
               replied_at=NULL,
               last_error=NULL,
-              updated_at=excluded.updated_at`,
+              updated_at=excluded.updated_at
+            WHERE weekend_reminders.status IN ('scheduled', 'failed')`,
       args: [
         item.reminderKey, item.orderNo, item.serviceDate, item.lineUserId,
         item.messageText, item.scheduledAt, now.toISOString(),
