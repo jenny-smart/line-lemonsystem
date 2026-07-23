@@ -1,4 +1,5 @@
 import { createClient } from "@libsql/client/web";
+import { classifyRisk, generateAiReply, HUMAN_HANDOFF_REPLY } from "./ai.js";
 
 /**
  * 驗證 LINE webhook 簽章
@@ -70,6 +71,24 @@ async function findKeywordReply(db, messageText) {
   return null;
 }
 
+async function recentConversation(db, userId) {
+  const rs = await db.execute({
+    sql: `SELECT message_text FROM line_messages
+          WHERE line_user_id=? ORDER BY id DESC LIMIT 4`,
+    args: [userId],
+  });
+  return (rs.rows || []).map((row) => row.message_text || row[0]).filter(Boolean).reverse();
+}
+
+async function markForHuman(db, userId, reason) {
+  await db.execute({
+    sql: `UPDATE line_messages
+          SET status='未處理', note=?
+          WHERE id=(SELECT MAX(id) FROM line_messages WHERE line_user_id=?)`,
+    args: [`AI轉人工：${reason}`, userId],
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method !== "POST") {
@@ -115,7 +134,23 @@ export default {
       });
 
       if (messageType === "text") {
-        const autoReply = await findKeywordReply(db, messageText);
+        const risk = classifyRisk(messageText);
+        if (risk.needsHuman) {
+          await markForHuman(db, userId, risk.reason);
+          await replyMessage(event.replyToken, HUMAN_HANDOFF_REPLY, env.LINE_CHANNEL_ACCESS_TOKEN);
+          continue;
+        }
+
+        // 資料庫自訂關鍵字優先，AI 僅補足自然語意，避免不必要的 API 花費。
+        let autoReply = await findKeywordReply(db, messageText);
+        if (!autoReply && env.AI_AUTO_REPLY !== "off") {
+          autoReply = await generateAiReply({
+            env,
+            messageText,
+            displayName,
+            recentMessages: await recentConversation(db, userId),
+          });
+        }
         if (autoReply) {
           await replyMessage(event.replyToken, autoReply, env.LINE_CHANNEL_ACCESS_TOKEN);
         }

@@ -1,6 +1,6 @@
 # LINE 客服訊息紀錄系統
 
-LINE 官方帳號 webhook → Cloudflare Worker → Turso (SQLite) → Streamlit 統計面板
+LINE 官方帳號 webhook → Cloudflare Worker → 規則/AI 回覆 → Turso (SQLite) → Streamlit 統計面板
 
 ## 架構
 
@@ -24,6 +24,7 @@ npx wrangler secret put LINE_CHANNEL_SECRET
 npx wrangler secret put LINE_CHANNEL_ACCESS_TOKEN
 npx wrangler secret put TURSO_DATABASE_URL
 npx wrangler secret put TURSO_AUTH_TOKEN
+npx wrangler secret put OPENAI_API_KEY
 
 # 部署
 npx wrangler deploy
@@ -75,3 +76,11 @@ CREATE TABLE line_messages (
 - `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`TURSO_AUTH_TOKEN` 絕對不要 commit 進 GitHub
 - `.gitignore` 已排除 `.dev.vars`、`secrets.toml` 等機密檔案
 - 若 Token 曾經貼在聊天視窗或公開過，建議到 Turso / LINE 後台重新產生一組新的
+
+## AI 回覆安全分層
+
+- 第一層：預約流程、服務範圍、會員查詢等，可依模板自動回覆。
+- 第二層：報價、VIP、取消改期，只說明規則或蒐集資料，提示由專人確認。
+- 第三層：客訴、退費、清潔不滿、賠償與金額爭議，停止 AI 代答並標記轉人工。
+- 回覆順序為「資料庫自訂關鍵字 → 精簡規則上下文的 AI → 不回覆」，可降低 API token 與幻覺風險。
+- 設定 `AI_AUTO_REPLY = "off"` 可隨時關閉 AI，保留既有關鍵字回覆。

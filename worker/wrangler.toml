@@ -7,3 +7,9 @@ compatibility_date = "2024-09-23"
 # - LINE_CHANNEL_ACCESS_TOKEN
 # - TURSO_DATABASE_URL
 # - TURSO_AUTH_TOKEN
+# - OPENAI_API_KEY
+
+[vars]
+# 可改成帳號可用的模型；預設程式使用 gpt-5.6。
+OPENAI_MODEL = "gpt-5.6"
+AI_AUTO_REPLY = "on"
