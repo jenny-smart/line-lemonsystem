@@ -138,16 +138,25 @@ export async function processDueReminders(
   { now = new Date(), fetchImpl = fetch, limit = 100 } = {},
 ) {
   await ensureReminderSchema(db);
-  const due = await db.execute({
-    sql: `SELECT reminder_key, line_user_id, message_text
+  const scheduled = await db.execute({
+    sql: `SELECT reminder_key, line_user_id, message_text, scheduled_at
           FROM weekend_reminders
-          WHERE status='scheduled' AND scheduled_at <= ?
+          WHERE status='scheduled'
           ORDER BY scheduled_at ASC LIMIT ?`,
-    args: [now.toISOString(), limit],
+    args: [limit],
+  });
+  // Turso/SQLite deployments can compare ISO timestamp parameters differently
+  // depending on the stored value's offset format. Parse both sides in
+  // JavaScript so an already-due reminder is never skipped by text comparison.
+  const nowMs = now.getTime();
+  const dueRows = (scheduled.rows || []).filter((row) => {
+    const scheduledMs = new Date(String(row.scheduled_at || "")).getTime();
+    return Number.isFinite(scheduledMs) && scheduledMs <= nowMs;
   });
   let sent = 0;
   let failed = 0;
-  for (const row of due.rows || []) {
+  const errors = [];
+  for (const row of dueRows) {
     const response = await pushReminder(
       row.line_user_id,
       buildQuickReplyMessage(row.message_text, row.reminder_key),
@@ -165,6 +174,21 @@ export async function processDueReminders(
     } else {
       failed += 1;
       const errorText = `${response.status} ${(await response.text()).slice(0, 500)}`.trim();
+      let bot = null;
+      try {
+        const botResponse = await fetchImpl("https://api.line.me/v2/bot/info", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const botBody = await botResponse.json();
+        bot = {
+          status: botResponse.status,
+          displayName: botBody.displayName || null,
+          basicId: botBody.basicId || null,
+        };
+      } catch {
+        bot = { status: "diagnostic_failed" };
+      }
+      errors.push({ reminderKey: row.reminder_key, detail: errorText, bot });
       await db.execute({
         sql: `UPDATE weekend_reminders
               SET status='failed', last_error=?, updated_at=?
@@ -173,7 +197,37 @@ export async function processDueReminders(
       });
     }
   }
-  return { found: (due.rows || []).length, sent, failed };
+  const recentFailure = await db.execute({
+    sql: `SELECT last_error, line_user_id
+          FROM weekend_reminders
+          WHERE status='failed' AND last_error IS NOT NULL
+          ORDER BY updated_at DESC LIMIT 1`,
+    args: [],
+  });
+  let latestProfileStatus = null;
+  const failedLineUserId = recentFailure.rows?.[0]?.line_user_id;
+  if (failedLineUserId) {
+    try {
+      const profileResponse = await fetchImpl(
+        `https://api.line.me/v2/bot/profile/${encodeURIComponent(failedLineUserId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      latestProfileStatus = profileResponse.status;
+    } catch {
+      latestProfileStatus = "diagnostic_failed";
+    }
+  }
+  return {
+    found: dueRows.length,
+    sent,
+    failed,
+    scanned: (scheduled.rows || []).length,
+    now: Number.isFinite(nowMs) ? new Date(nowMs).toISOString() : String(now),
+    nextScheduledAt: scheduled.rows?.[0]?.scheduled_at || null,
+    errors,
+    latestError: recentFailure.rows?.[0]?.last_error || null,
+    latestProfileStatus,
+  };
 }
 
 export async function recordReminderReply(db, reminderKey, lineUserId, now = new Date()) {

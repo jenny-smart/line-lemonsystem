@@ -44,8 +44,17 @@ test("sends due reminder and records postback reply", async () => {
             reminder_key: "LC001|2026-07-25",
             line_user_id: "U-user",
             message_text: "提醒",
+            scheduled_at: "2026-07-24T01:02:00.000Z",
+          }, {
+            reminder_key: "LC002|2026-07-25",
+            line_user_id: "U-future",
+            message_text: "未到時間",
+            scheduled_at: "2026-07-24T01:05:00.000Z",
           }],
         };
+      }
+      if (query.sql.includes("SELECT last_error")) {
+        return { rows: [] };
       }
       if (query.sql.includes("UPDATE weekend_reminders")) {
         updates.push(query);
@@ -63,7 +72,17 @@ test("sends due reminder and records postback reply", async () => {
     now: new Date("2026-07-24T01:03:00.000Z"),
     fetchImpl,
   });
-  assert.deepEqual(result, { found: 1, sent: 1, failed: 0 });
+  assert.deepEqual(result, {
+    found: 1,
+    sent: 1,
+    failed: 0,
+    scanned: 2,
+    now: "2026-07-24T01:03:00.000Z",
+    nextScheduledAt: "2026-07-24T01:02:00.000Z",
+    errors: [],
+    latestError: null,
+    latestProfileStatus: null,
+  });
   assert.equal(pushed.to, "U-user");
   assert.equal(pushed.messages[0].quickReply.items[0].action.label, "已收到");
 
