@@ -1,6 +1,5 @@
-// v1.1 新增：每則訊息進來時自動 upsert line_users（用戶自動建檔）
-
 import { createClient } from "@libsql/client/web";
+import { classifyRisk, generateAiReply, HUMAN_HANDOFF_REPLY } from "./ai.js";
 
 /**
  * 驗證 LINE webhook 簽章
@@ -72,43 +71,22 @@ async function findKeywordReply(db, messageText) {
   return null;
 }
 
-/**
- * 新增：用戶自動建檔 / 更新互動紀錄
- * - 用戶第一次傳訊息 → 自動新建 line_users 記錄
- * - 用戶再次傳訊息 → 更新 last_seen_at、message_count + 1
- * 不覆蓋客服手動維護的欄位（edited_name、note、phone、area、address、vip、owner、tags 關聯）
- * 只有客服「尚未改過名稱」時才跟著更新 display_name，避免蓋掉客服的自訂命名
- */
-async function upsertLineUser(db, userId, displayName) {
-  try {
-    const existing = await db.execute({
-      sql: "SELECT line_user_id, edited_name FROM line_users WHERE line_user_id = ?",
-      args: [userId],
-    });
+async function recentConversation(db, userId) {
+  const rs = await db.execute({
+    sql: `SELECT message_text FROM line_messages
+          WHERE line_user_id=? ORDER BY id DESC LIMIT 4`,
+    args: [userId],
+  });
+  return (rs.rows || []).map((row) => row.message_text || row[0]).filter(Boolean).reverse();
+}
 
-    if (existing.rows.length === 0) {
-      // 全新用戶：建檔
-      await db.execute({
-        sql: `INSERT INTO line_users
-              (line_user_id, display_name, first_seen_at, last_seen_at, message_count)
-              VALUES (?, ?, datetime('now'), datetime('now'), 1)`,
-        args: [userId, displayName],
-      });
-    } else {
-      // 既有用戶：只更新互動狀態與原始 LINE 暱稱，不動客服已編輯的欄位
-      await db.execute({
-        sql: `UPDATE line_users
-              SET display_name = ?,
-                  last_seen_at = datetime('now'),
-                  message_count = message_count + 1
-              WHERE line_user_id = ?`,
-        args: [displayName, userId],
-      });
-    }
-  } catch (e) {
-    // upsert 失敗不應該讓整個 webhook 失敗（訊息記錄仍要成功），僅記錄錯誤
-    console.error("upsertLineUser failed:", e);
-  }
+async function markForHuman(db, userId, reason) {
+  await db.execute({
+    sql: `UPDATE line_messages
+          SET status='未處理', note=?
+          WHERE id=(SELECT MAX(id) FROM line_messages WHERE line_user_id=?)`,
+    args: [`AI轉人工：${reason}`, userId],
+  });
 }
 
 export default {
@@ -155,11 +133,24 @@ export default {
         args: [userId, displayName, messageText, messageType],
       });
 
-      // 新增：訊息寫入成功後，同步 upsert 用戶主檔
-      await upsertLineUser(db, userId, displayName);
-
       if (messageType === "text") {
-        const autoReply = await findKeywordReply(db, messageText);
+        const risk = classifyRisk(messageText);
+        if (risk.needsHuman) {
+          await markForHuman(db, userId, risk.reason);
+          await replyMessage(event.replyToken, HUMAN_HANDOFF_REPLY, env.LINE_CHANNEL_ACCESS_TOKEN);
+          continue;
+        }
+
+        // 資料庫自訂關鍵字優先，AI 僅補足自然語意，避免不必要的 API 花費。
+        let autoReply = await findKeywordReply(db, messageText);
+        if (!autoReply && env.AI_AUTO_REPLY !== "off") {
+          autoReply = await generateAiReply({
+            env,
+            messageText,
+            displayName,
+            recentMessages: await recentConversation(db, userId),
+          });
+        }
         if (autoReply) {
           await replyMessage(event.replyToken, autoReply, env.LINE_CHANNEL_ACCESS_TOKEN);
         }
