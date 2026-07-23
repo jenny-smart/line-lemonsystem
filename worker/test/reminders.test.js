@@ -53,9 +53,6 @@ test("sends due reminder and records postback reply", async () => {
           }],
         };
       }
-      if (query.sql.includes("SELECT last_error")) {
-        return { rows: [] };
-      }
       if (query.sql.includes("UPDATE weekend_reminders")) {
         updates.push(query);
         return { rowsAffected: 1, rows: [] };
@@ -80,8 +77,6 @@ test("sends due reminder and records postback reply", async () => {
     now: "2026-07-24T01:03:00.000Z",
     nextScheduledAt: "2026-07-24T01:02:00.000Z",
     errors: [],
-    latestError: null,
-    latestProfileStatus: null,
   });
   assert.equal(pushed.to, "U-user");
   assert.equal(pushed.messages[0].quickReply.items[0].action.label, "已收到");
