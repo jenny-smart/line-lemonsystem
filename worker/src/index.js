@@ -1,5 +1,5 @@
 import { createClient } from "@libsql/client/web";
-import { classifyRisk, generateAiReply, HUMAN_HANDOFF_REPLY } from "./ai.js";
+import { classifyRisk, generateAiReply } from "./ai.js";
 import {
   parseReminderPostback,
   processDueReminders,
@@ -218,7 +218,6 @@ export default {
         const risk = classifyRisk(messageText);
         if (risk.needsHuman) {
           await markForHuman(db, userId, risk.reason);
-          await replyMessage(event.replyToken, HUMAN_HANDOFF_REPLY, env.LINE_CHANNEL_ACCESS_TOKEN);
           continue;
         }
 
