@@ -127,4 +127,3 @@ export async function generateAiReply({ env, messageText, displayName = "", rece
   }
 }
 
-export const HUMAN_HANDOFF_REPLY = "您好，已收到您的訊息，很抱歉讓您有不好的感受。我們已為您標記由專人優先處理，稍後客服會進一步確認，謝謝您。";
