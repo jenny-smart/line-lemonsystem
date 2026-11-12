@@ -16,4 +16,7 @@ crons = ["* * * * *"]
 [vars]
 # 可改成帳號可用的模型；預設程式使用 gpt-5.6。
 OPENAI_MODEL = "gpt-5.6"
-AI_AUTO_REPLY = "on"
+AI_AUTO_REPLY = "off"
+# 只記錄模式（預設開啟）：客人訊息照常存進 Turso，但不發關鍵字回覆、AI 回覆，也不標記轉人工。
+# 週末提醒的排程發送與「已收到」回覆不受影響。要恢復自動回覆才改成 "off"。
+RECORD_ONLY = "on"

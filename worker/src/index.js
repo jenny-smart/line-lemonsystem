@@ -1,5 +1,6 @@
 import { createClient } from "@libsql/client/web";
 import { classifyRisk, generateAiReply } from "./ai.js";
+import { isRecordOnly } from "./config.js";
 import {
   parseReminderPostback,
   processDueReminders,
@@ -213,6 +214,9 @@ export default {
               VALUES (?, ?, ?, ?, datetime('now'))`,
         args: [userId, displayName, messageText, messageType],
       });
+
+      // 只記錄模式：訊息已存檔，不標記轉人工、不發關鍵字或 AI 回覆。
+      if (isRecordOnly(env)) continue;
 
       if (messageType === "text") {
         const risk = classifyRisk(messageText);

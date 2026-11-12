@@ -91,6 +91,15 @@ CREATE TABLE line_messages (
 - `.gitignore` 已排除 `.dev.vars`、`secrets.toml` 等機密檔案
 - 若 Token 曾經貼在聊天視窗或公開過，建議到 Turso / LINE 後台重新產生一組新的
 
+## 只記錄模式（RECORD_ONLY）
+
+`worker/wrangler.toml` 的 `RECORD_ONLY = "on"`（預設，沒設定也視為開啟）時，Worker 只把客人訊息寫入
+`line_messages`，不標記轉人工、不發關鍵字回覆、不發 AI 回覆。週末提醒的排程發送與「已收到」回覆照常。
+用途：重新開啟 LINE Webhook 收訊息（供 order-system 比對代客預訂訂單與客人要求的日期），
+但不讓系統自動回覆客人。要恢復自動回覆才設成 `"off"`，並另外確認 `AI_AUTO_REPLY`。
+
+Webhook 只會收到客人傳來的訊息，客服在 chat.line.biz 手動回覆的內容不會進資料庫。
+
 ## AI 回覆安全分層
 
 - 第一層：預約流程、服務範圍、會員查詢等，可依模板自動回覆。
