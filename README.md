@@ -91,6 +91,23 @@ CREATE TABLE line_messages (
 - `.gitignore` 已排除 `.dev.vars`、`secrets.toml` 等機密檔案
 - 若 Token 曾經貼在聊天視窗或公開過，建議到 Turso / LINE 後台重新產生一組新的
 
+## 週末提醒「確認收到」連結
+
+客服照常在 chat.line.biz 發提醒；order-system 產生的提醒訊息會附上每張訂單專屬的連結：
+
+```
+https://<worker 網址>/c/<訂單編號>/<YYYYMMDD>/<簽章>
+```
+
+- 客人點開是確認頁，再按「確認收到」才記錄到 `reminder_confirmations`（保留第一次確認的時間）。
+  開啟頁面（GET）不會記錄，因為 LINE 會自動預覽訊息裡的網址。
+- 簽章＝`HMAC-SHA256(REMINDER_API_KEY, "confirm|訂單編號|YYYY-MM-DD")` 十六進位前 16 碼，不需事先登記，
+  也不需要客人的 LINE user ID；服務日 2 天後連結失效。
+- order-system 用 `POST /api/confirmations/status`（`Authorization: Bearer <REMINDER_API_KEY>`，
+  body `{"keys": ["訂單編號|YYYY-MM-DD", ...]}`）查詢，同步回「週末服務提醒」追蹤表。
+- 這個功能不需要開啟 LINE Webhook；Worker 必須設定 `REMINDER_API_KEY`，且與 order-system 的
+  `LINE_REMINDER_API_KEY` 相同。
+
 ## 只記錄模式（RECORD_ONLY）
 
 `worker/wrangler.toml` 的 `RECORD_ONLY = "on"`（預設，沒設定也視為開啟）時，Worker 只把客人訊息寫入

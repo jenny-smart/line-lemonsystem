@@ -1,6 +1,7 @@
 import { createClient } from "@libsql/client/web";
 import { classifyRisk, generateAiReply } from "./ai.js";
 import { isRecordOnly } from "./config.js";
+import { CONFIRM_PATH_PREFIX, confirmationStatuses, handleConfirm } from "./confirm.js";
 import {
   parseReminderPostback,
   processDueReminders,
@@ -159,11 +160,38 @@ async function reminderApi(request, env, pathname) {
   return jsonResponse({ error: "not_found" }, 404);
 }
 
+async function confirmationApi(request, env) {
+  if (!env.REMINDER_API_KEY) {
+    return jsonResponse({ error: "REMINDER_API_KEY is not configured" }, 503);
+  }
+  if (request.method !== "POST" || !authorized(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, 401);
+  }
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "invalid_json" }, 400);
+  }
+  try {
+    return jsonResponse({ ok: true, confirmations: await confirmationStatuses(connectDb(env), body.keys) });
+  } catch (error) {
+    return jsonResponse({ error: String(error?.message || error) }, 400);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/reminders/")) {
       return reminderApi(request, env, url.pathname);
+    }
+    // 週末提醒「確認收到」連結：GET 顯示確認頁，POST 才記錄。
+    if (url.pathname.startsWith(CONFIRM_PATH_PREFIX)) {
+      return handleConfirm(request, env, url.pathname, connectDb);
+    }
+    if (url.pathname === "/api/confirmations/status") {
+      return confirmationApi(request, env);
     }
     if (request.method !== "POST") {
       return new Response("LINE webhook is running.", { status: 200 });
